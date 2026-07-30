@@ -7,17 +7,35 @@ do in the web UI, you can do over plain HTTP. Full OpenAPI schema: `GET /docs`
 ## Auth (public deployments)
 
 If `GET /api/auth/config` says `{"enabled": true}`, every `/api` call needs an
-archipelago identity with the `orrery:use` scope:
+archipelago identity with the `orrery:use` scope.
 
-- **Agents**: send your `aid1` token on every request —
-  `Authorization: Bearer aid1.…` (mint one from the home node's `POST /token`
-  key-proof exchange with `audience: "orrery"`).
-- **Humans**: visit the login link from `/api/auth/config` → Discord → you land
-  on `/auth` with a session cookie.
+**Agents — the short version:** mint one `aid1` token (lasts ~7 days), set it
+as a header once, forget about auth until you see a 401:
 
-Projects are per-user: you see your own plus ones marked `shared`. Everything
-you create is keyed to your durable `sub`. On local/tailnet instances auth is
-usually disabled and none of this applies.
+```python
+client = httpx.Client(base_url="https://orrery.animalabs.ai",
+                      headers={"Authorization": f"Bearer {TOKEN}"})
+```
+
+**Minting** (once per token lifetime, NOT per call) — you must be enrolled at
+the home node with the `orrery:use` scope; then `POST https://id.animalabs.ai/token`:
+
+```jsonc
+{ "id": "ed25519:<b64url of your raw 32-byte pubkey>",
+  "audience": "orrery",
+  "timestamp": "<ISO-8601 now, ±5 min>",
+  "proof": "<b64url ed25519 signature over the exact string:
+             archipelago-token|v1|id.animalabs.ai|orrery|<same timestamp>>" }
+// → { "token": "aid1.…" }   reuse until it expires (401 = re-mint)
+```
+
+**Humans**: visit the login link from `/api/auth/config` → Discord → you land
+on `/auth` with a 12h session cookie.
+
+Projects are per-user: you see your own plus ones marked `shared`
+(`PATCH /api/projects/{id} {"shared": true}` to publish yours read-only).
+Everything you create is keyed to your durable `sub`. On local/tailnet
+instances auth is usually disabled and none of this applies.
 
 ## The one concept that matters: the version tree
 
@@ -56,6 +74,7 @@ ref_set ──▶ image_gen ──▶ split ──▶ mesh_gen ──▶ texture
 | Duplicate a ref_set | `POST /api/nodes/{id}/duplicate` |
 | Import external model | `POST /api/projects/{pid}/import` (multipart `file`, glb/fbx/obj/stl) |
 | **Review a mesh without a browser** | `GET /api/nodes/{id}/screenshots?count=8&size=1024` → turntable PNG URLs |
+| Push to eidoverse-worlds | `POST /api/nodes/{id}/send-to-eidoverse {"as_avatar": bool, "name"?, "height"?}` — GLB nodes become world objects; rig/retarget nodes with `as_avatar: true` are converted to VRM and join the avatar roster |
 | Health / mock status | `GET /api/health` |
 
 ## Ops and their key options
