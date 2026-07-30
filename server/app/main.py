@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import get_settings
 from .db import init_db
 from .pipeline.engine import engine
-from .routers import assets, authr, nodes, projects, quick, screenshots
+from .routers import admin, assets, authr, nodes, projects, quick, screenshots
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -68,6 +68,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin.router)
 app.include_router(authr.router)
 app.include_router(projects.router)
 app.include_router(nodes.router)

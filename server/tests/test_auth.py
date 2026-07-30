@@ -151,6 +151,11 @@ async def test_ownership_scoping(tmp_path, monkeypatch, issuer):
 
         # admin sees and writes everything
         assert len((await c.get("/api/projects", headers=boss)).json()) == 1
+        # admin views: gated for others, working for admins
+        assert (await c.get("/api/admin/recent", headers=bob)).status_code == 403
+        assert (await c.get("/api/admin/recent", headers=boss)).status_code == 200
+        totals = (await c.get("/api/admin/users", headers=boss)).json()
+        assert any(t["owner"] == "alice" for t in totals)
         assert (await c.post(f"/api/projects/{p['id']}/nodes", headers=boss,
                              json={"op": "ref_set"})).status_code == 200
 

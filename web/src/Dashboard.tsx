@@ -9,13 +9,27 @@ export function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [health, setHealth] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
+  const [recent, setRecent] = useState<any[]>([]);
+  const [userTotals, setUserTotals] = useState<any[]>([]);
+  const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
 
   const load = () => api.listProjects().then(setProjects).catch(console.error);
   useEffect(() => {
     load();
     api.health().then(setHealth).catch(() => {});
-    api.me().then(setUser).catch(() => {});
+    api.me().then((u) => {
+      setUser(u);
+      if (u?.admin) {
+        api.adminRecent(48).then(setRecent).catch(() => {});
+        api.adminUsers().then(setUserTotals).catch(() => {});
+      }
+    }).catch(() => {});
   }, []);
+
+  const owners = [...new Set(projects.map((p) => p.owner_name || "legacy"))];
+  const visibleProjects = ownerFilter
+    ? projects.filter((p) => (p.owner_name || "legacy") === ownerFilter)
+    : projects;
 
   const create = async (quick: boolean) => {
     if (!prompt.trim() && !name.trim()) return;
@@ -92,8 +106,65 @@ export function Dashboard() {
           </div>
         </div>
 
+        {user?.admin && recent.length > 0 && (
+          <>
+            <h2>All activity <span style={{ fontSize: 12, color: "var(--text-dim)" }}>(admin)</span></h2>
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8, marginBottom: 10 }}>
+              {recent.filter((r) => r.thumb_asset).map((r) => (
+                <a
+                  key={r.node_id}
+                  href={`#/p/${r.project_id}`}
+                  title={`${r.op_type} · ${r.project_name} · ${r.owner_name}\n${r.created_at}`}
+                  style={{ flexShrink: 0, textDecoration: "none", color: "var(--text-dim)", textAlign: "center", fontSize: 10 }}
+                >
+                  <img
+                    src={`/api/assets/${r.thumb_asset}/file`}
+                    style={{
+                      width: 84, height: 84, objectFit: "cover", borderRadius: 8,
+                      border: `1px solid ${r.status === "failed" ? "var(--red)" : "var(--border)"}`,
+                      display: "block",
+                    }}
+                    alt=""
+                  />
+                  {r.owner_name}
+                </a>
+              ))}
+            </div>
+            {userTotals.length > 1 && (
+              <div className="row" style={{ marginBottom: 16, fontSize: 12, color: "var(--text-dim)", gap: 14, flexWrap: "wrap" }}>
+                {userTotals.map((t) => (
+                  <span key={t.owner}>
+                    <b style={{ color: "var(--text)" }}>{t.owner}</b> {t.projects}p/{t.nodes}n · ${t.cost_usd?.toFixed(2)} + {t.credits}cr
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         <h2>Projects</h2>
-        {projects.map((p) => (
+        {user?.admin && owners.length > 1 && (
+          <div className="row" style={{ marginBottom: 10, gap: 6, flexWrap: "wrap" }}>
+            <button
+              className="badge"
+              style={{ borderColor: ownerFilter === null ? "var(--accent)" : "var(--border)" }}
+              onClick={() => setOwnerFilter(null)}
+            >
+              everyone
+            </button>
+            {owners.map((o) => (
+              <button
+                key={o}
+                className="badge"
+                style={{ borderColor: ownerFilter === o ? "var(--accent)" : "var(--border)" }}
+                onClick={() => setOwnerFilter(ownerFilter === o ? null : o)}
+              >
+                {o}
+              </button>
+            ))}
+          </div>
+        )}
+        {visibleProjects.map((p) => (
           <div key={p.id} className="project-card" onClick={() => (window.location.hash = `#/p/${p.id}`)}>
             <div style={{ flex: 1 }}>
               <div>
@@ -110,7 +181,7 @@ export function Dashboard() {
             </div>
           </div>
         ))}
-        {projects.length === 0 && <div style={{ color: "var(--text-dim)" }}>No projects yet.</div>}
+        {visibleProjects.length === 0 && <div style={{ color: "var(--text-dim)" }}>No projects{ownerFilter ? ` for ${ownerFilter}` : " yet"}.</div>}
       </div>
     </>
   );

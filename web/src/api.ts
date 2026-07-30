@@ -26,6 +26,8 @@ async function j<T>(res: Response): Promise<T> {
 export const api = {
   health: () => fetch("/api/health").then((r) => j<any>(r)),
   me: () => fetch("/api/auth/me").then((r) => j<any>(r)),
+  adminRecent: (limit = 40) => fetch(`/api/admin/recent?limit=${limit}`).then((r) => j<any[]>(r)),
+  adminUsers: () => fetch("/api/admin/users").then((r) => j<any[]>(r)),
   logout: () => fetch("/api/auth/logout", { method: "POST" }).then((r) => j<any>(r)),
   opCatalog: () => fetch("/api/ops").then((r) => j<OpCatalog>(r)),
 
