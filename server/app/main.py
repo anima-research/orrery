@@ -56,6 +56,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="orrery", version="0.1.0", lifespan=lifespan)
 
+# The eidoverse client calls orrery cross-origin (in-world generation);
+# credentials ride along, so the session cookie is SameSite=None when auth is on.
+from starlette.middleware.cors import CORSMiddleware  # noqa: E402
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"https://eidoverse\.animalabs\.ai|https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(authr.router)
 app.include_router(projects.router)
 app.include_router(nodes.router)

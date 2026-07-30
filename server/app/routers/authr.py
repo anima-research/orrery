@@ -49,10 +49,13 @@ async def login(body: LoginIn, response: Response) -> dict:
         return {"ok": True, "sub": "local", "name": "local", "note": "auth disabled"}
     ident = identity_from_login_token(body.token)   # raises 403 on bad token
     sid = sessions.mint(ident)
+    # SameSite=None (+Secure) so the cookie also rides cross-origin requests
+    # from the eidoverse client; local/no-auth mode keeps Lax.
     response.set_cookie(
         SESSION_COOKIE, sid,
         max_age=get_settings().session_ttl_hours * 3600,
-        httponly=True, samesite="lax", secure=auth_enabled(), path="/",
+        httponly=True, samesite="none" if auth_enabled() else "lax",
+        secure=auth_enabled(), path="/",
     )
     return {"ok": True, "sub": ident.sub, "name": ident.name, "admin": ident.admin}
 

@@ -24,6 +24,7 @@ class QuickIn(BaseModel):
     n_meshes: int = 1
     image_options: dict[str, Any] = {}     # resolution/quality/... overrides
     mesh_options: dict[str, Any] = {}      # tripo overrides (model, texture_quality, ...)
+    approve_images: bool = False           # pause after image gen until a candidate is starred
 
 
 @router.post("/quick")
@@ -54,10 +55,12 @@ async def quick(body: QuickIn, wait: bool = False, timeout_s: int = 1800,
         if ref_sets:
             anchor = ref_sets[0].id
 
-    # the whole pipeline is one chain; select=first tolerates sibling failures
+    # the whole pipeline is one chain; select=first tolerates sibling failures,
+    # select=starred (approve_images) waits for a human/agent to star a candidate
     chain = await engine.start_chain(project.id, anchor, [
         {"op": "image_gen", "options": image_opts,
-         "n": max(1, min(8, body.n_images)), "select": "first"},
+         "n": max(1, min(8, body.n_images)),
+         "select": "starred" if body.approve_images else "first"},
         {"op": "split", "options": {}, "n": 1, "select": "first"},
         {"op": "mesh_gen", "options": mesh_opts,
          "n": max(1, min(6, body.n_meshes)), "select": "first"},
