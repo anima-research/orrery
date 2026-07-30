@@ -16,28 +16,47 @@ import httpx
 
 from ..config import get_settings
 
-MAX_BYTES = 80_000_000
-
-
 class EidoverseError(RuntimeError):
     pass
 
 
+def _max_bytes() -> int:
+    return get_settings().eidoverse_max_mb * 1_000_000
+
+
+def _upload_params(extra: dict | None = None, by: str | None = None) -> dict:
+    s = get_settings()
+    params = dict(extra or {})
+    if s.eidoverse_token:
+        params["token"] = s.eidoverse_token
+    if by:
+        params["by"] = by[:64]
+    return params
+
+
 def _check_glb(path: Path) -> None:
-    if path.stat().st_size > MAX_BYTES:
-        raise EidoverseError(f"{path.name} is {path.stat().st_size // 1_000_000}MB — eidoverse caps uploads at 80MB "
-                             "(retopo or convert with smaller texture_size first)")
+    cap = _max_bytes()
+    if path.stat().st_size > cap:
+        raise EidoverseError(f"{path.name} is {path.stat().st_size // 1_000_000}MB — eidoverse caps uploads at "
+                             f"{cap // 1_000_000}MB (retopo or convert with smaller texture_size first)")
     with open(path, "rb") as f:
         if f.read(4) != b"glTF":
             raise EidoverseError(f"{path.name} is not a GLB container — eidoverse accepts .glb/.vrm only")
 
 
-async def send_object(glb_path: Path) -> dict:
+async def send_object(glb_path: Path, by: str | None = None) -> dict:
     """Upload a GLB as a world object; returns {"path": "store/<hash>.glb"}."""
     _check_glb(glb_path)
     s = get_settings()
-    async with httpx.AsyncClient(timeout=300) as client:
-        r = await client.post(f"{s.eidoverse_url}/upload", content=glb_path.read_bytes())
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            r = await client.post(f"{s.eidoverse_url}/upload",
+                                  params=_upload_params(by=by),
+                                  content=glb_path.read_bytes())
+    except httpx.HTTPError as e:
+        raise EidoverseError(f"cannot reach eidoverse at {s.eidoverse_url}: {e.__class__.__name__}: {e}")
+    if r.status_code == 401:
+        raise EidoverseError("eidoverse requires an upload token — set EIDOVERSE_TOKEN")
     if r.status_code >= 400:
         raise EidoverseError(f"eidoverse upload failed: {r.status_code} {r.text[:200]}")
     return r.json()
@@ -64,8 +83,8 @@ async def glb_to_vrm(glb_path: Path, name: str, height: float | None = None) -> 
 
 
 async def slim_vrm_if_needed(vrm_path: Path) -> Path:
-    """Run tools/slim-vrm.ts when the VRM is over the 80MB cap (texture downsize)."""
-    if vrm_path.stat().st_size <= MAX_BYTES:
+    """Run tools/slim-vrm.ts when the VRM is over the upload cap (texture downsize)."""
+    if vrm_path.stat().st_size <= _max_bytes():
         return vrm_path
     s = get_settings()
     tool = s.eidoverse_repo / "tools" / "slim-vrm.ts"
@@ -81,18 +100,24 @@ async def slim_vrm_if_needed(vrm_path: Path) -> Path:
     return slim
 
 
-async def send_avatar(glb_path: Path, name: str, height: float | None = None) -> dict:
+async def send_avatar(glb_path: Path, name: str, height: float | None = None,
+                      by: str | None = None) -> dict:
     """Convert rigged GLB -> VRM and upload as a named avatar."""
     vrm = await glb_to_vrm(glb_path, name, height)
     vrm = await slim_vrm_if_needed(vrm)
     _check_glb(vrm)
     s = get_settings()
-    async with httpx.AsyncClient(timeout=300) as client:
-        r = await client.post(
-            f"{s.eidoverse_url}/upload",
-            params={"as": "avatar", "name": name},
-            content=vrm.read_bytes(),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            r = await client.post(
+                f"{s.eidoverse_url}/upload",
+                params=_upload_params({"as": "avatar", "name": name}, by=by),
+                content=vrm.read_bytes(),
+            )
+    except httpx.HTTPError as e:
+        raise EidoverseError(f"cannot reach eidoverse at {s.eidoverse_url}: {e.__class__.__name__}: {e}")
+    if r.status_code == 401:
+        raise EidoverseError("eidoverse requires an upload token — set EIDOVERSE_TOKEN")
     if r.status_code >= 400:
         raise EidoverseError(f"eidoverse avatar upload failed: {r.status_code} {r.text[:200]}")
     return r.json()
