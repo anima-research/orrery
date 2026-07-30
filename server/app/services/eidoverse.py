@@ -44,14 +44,18 @@ def _check_glb(path: Path) -> None:
             raise EidoverseError(f"{path.name} is not a GLB container — eidoverse accepts .glb/.vrm only")
 
 
-async def send_object(glb_path: Path, by: str | None = None) -> dict:
-    """Upload a GLB as a world object; returns {"path": "store/<hash>.glb"}."""
+async def send_object(glb_path: Path, name: str | None = None,
+                      by: str | None = None) -> dict:
+    """Upload a GLB as a world object; returns {"path": "store/<hash>.glb"}.
+    `name` lands in the store manifest — without it the content-addressed
+    catalog can only ever call this object a hash."""
     _check_glb(glb_path)
     s = get_settings()
+    extra = {"name": name[:64]} if name else None
     try:
         async with httpx.AsyncClient(timeout=300) as client:
             r = await client.post(f"{s.eidoverse_url}/upload",
-                                  params=_upload_params(by=by),
+                                  params=_upload_params(extra, by=by),
                                   content=glb_path.read_bytes())
     except httpx.HTTPError as e:
         raise EidoverseError(f"cannot reach eidoverse at {s.eidoverse_url}: {e.__class__.__name__}: {e}")

@@ -301,8 +301,10 @@ export function NodeInspector({
                 <button
                   title="upload this GLB into eidoverse-worlds as a world object"
                   onClick={async () => {
+                    const name = window.prompt("Object name for the eidoverse catalog\n(empty = project name):", "");
+                    if (name === null) return; // cancelled
                     try {
-                      const r = await api.sendToEidoverse(node.id, false);
+                      const r = await api.sendToEidoverse(node.id, false, name || undefined);
                       alert(`sent to eidoverse: ${r.path}\n(spawn it in-world via the asset verb)`);
                       onRefresh();
                     } catch (e: any) {

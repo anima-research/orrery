@@ -96,6 +96,7 @@ export const api = {
   duplicateNode: (nodeId: string) =>
     fetch(`/api/nodes/${nodeId}/duplicate`, { method: "POST" }).then((r) => j<TreeNode>(r)),
 
+  // name: avatar roster name, or object catalog label (server defaults to project name)
   sendToEidoverse: (nodeId: string, asAvatar: boolean, name?: string, height?: number) =>
     fetch(`/api/nodes/${nodeId}/send-to-eidoverse`, {
       method: "POST",

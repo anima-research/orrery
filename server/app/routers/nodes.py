@@ -202,7 +202,9 @@ async def send_to_eidoverse(node_id: str, body: EidoverseIn,
             name = body.name or f"orrery-{node.project_id[:6]}-{node.id[:6]}"
             result = await eidoverse.send_avatar(path, name, body.height, by=ident.name)
         else:
-            result = await eidoverse.send_object(path, by=ident.name)
+            project = await engine.get_project(node.project_id)
+            name = body.name or f"{project.name} {node.id[:6]}"
+            result = await eidoverse.send_object(path, name=name, by=ident.name)
     except eidoverse.EidoverseError as e:
         raise HTTPException(502, str(e))
     note = (node.note + " | " if node.note else "") + f"eidoverse: {result.get('path')}"
