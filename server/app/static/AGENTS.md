@@ -95,7 +95,9 @@ costs). Summary:
   Editing a grid keeps grid-ness.
 - **split** — cuts the parent grid into `front/left/back/right.png`. Options:
   `mapping` (override pane→view), `trim`.
-- **mesh_gen** — Tripo multiview→3D from a split (or image_to_multiview) parent.
+- **mesh_gen** — Tripo →3D. Off a split (or image_to_multiview) parent: multiview
+  mesh from the 4 views. Off an image node directly: single-image mesh (faster,
+  no grid needed; back side is imagined by the model).
   Key options: `model` (`v3.1-20260211` best, `P1-20260311` low-poly), `texture`,
   `pbr`, `texture_quality standard|detailed|extreme`, `geometry_quality`,
   `face_limit`, `quad`, seeds. Invalid params for a model version are stripped

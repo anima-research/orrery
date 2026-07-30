@@ -113,6 +113,8 @@ OP_SPECS: dict[str, dict[str, Any]] = {
                              "desc": "Subset of views to send, e.g. [\"front\",\"back\"]; default all 4"},
                    "n": {"type": "int", "min": 1, "max": 6, "default": 1, "desc": "Parallel candidates"}},
         "credits": "20 (H) / 30 (P1) + quality surcharges",
+        "desc": "Multiview mesh from a split node — or single-image mesh when "
+                "branched directly off an image node (no split needed).",
     },
     "image_to_multiview": {
         "provider": "tripo",

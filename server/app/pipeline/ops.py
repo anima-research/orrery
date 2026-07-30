@@ -224,9 +224,25 @@ async def op_split(eng, node: Node) -> None:
 
 
 async def op_mesh_gen(eng, node: Node) -> None:
+    """Multiview mesh from a split parent, or single-image mesh
+    (Tripo generation/image-to-model) when branched off an image node."""
     parent = await eng.get_node(node.parent_id)
     opts = node.options
     payload = clean_mesh_options(opts)
+
+    if parent.op_type in (OpType.image_gen, OpType.image_edit):
+        # single unsplit image -> model
+        src = await _first_image_asset(eng, parent.id)
+        if not src:
+            raise RuntimeError("parent image node has no image output")
+        token = await get_tripo().upload_file(src)
+        # NB: this endpoint wants v2-style `file`, not v3 `input` (verified live)
+        payload["file"] = {"type": src.suffix.lstrip(".").lower() or "png",
+                           "file_token": token}
+        result = await _run_tripo(eng, node, "generation/image-to-model", payload)
+        await _archive_model_outputs(eng, node, result,
+                                     model_ext="fbx" if payload.get("quad") else "glb")
+        return
 
     if parent.op_type == OpType.image_to_multiview and parent.provider_task_id:
         payload["inputs"] = [{"task_id": parent.provider_task_id}]
