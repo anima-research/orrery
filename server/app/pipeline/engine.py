@@ -84,6 +84,14 @@ class Engine:
             await s.commit()
         return asset
 
+    async def update_asset_meta(self, asset_id: str, meta: dict) -> None:
+        async with session_scope() as s:
+            a = await s.get(Asset, asset_id)
+            if a:
+                a.meta = {**(a.meta or {}), **meta}
+                s.add(a)
+                await s.commit()
+
     async def node_assets(self, node_id: str, kind: AssetKind | None = None) -> list[Asset]:
         async with session_scope() as s:
             q = select(Asset).where(Asset.node_id == node_id)

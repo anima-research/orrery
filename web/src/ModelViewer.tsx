@@ -49,14 +49,20 @@ function Model({
   clip,
   bones,
   inPlace,
+  partsMode,
+  hiddenParts,
   onHasBones,
+  onParts,
 }: {
   url: string;
   wireframe: boolean;
   clip: string | null;
   bones: boolean;
   inPlace: boolean;
+  partsMode: boolean;
+  hiddenParts: Set<string>;
   onHasBones: (has: boolean) => void;
+  onParts: (parts: string[]) => void;
 }) {
   const gltf = useGLTF(url);
   const { actions } = useAnimations(gltf.animations, gltf.scene);
@@ -81,6 +87,46 @@ function Model({
     });
     return b;
   }, [gltf.scene]);
+
+  // named parts (segmentation output = one named mesh per part)
+  const partMeshes = useMemo(() => {
+    const map = new Map<string, THREE.Mesh[]>();
+    gltf.scene.traverse((o: any) => {
+      if (o.isMesh) {
+        const nm = o.name || o.parent?.name || `part_${map.size}`;
+        if (!map.has(nm)) map.set(nm, []);
+        map.get(nm)!.push(o);
+      }
+    });
+    return map;
+  }, [gltf.scene]);
+
+  useEffect(() => {
+    onParts(partMeshes.size > 1 ? [...partMeshes.keys()] : []);
+  }, [partMeshes, onParts]);
+
+  // color-by-part override (originals restored on toggle-off)
+  useEffect(() => {
+    const names = [...partMeshes.keys()];
+    names.forEach((nm, i) => {
+      for (const m of partMeshes.get(nm)!) {
+        if (partsMode) {
+          if (!m.userData.__origMat) m.userData.__origMat = m.material;
+          m.material = new THREE.MeshStandardMaterial({
+            color: new THREE.Color().setHSL((i * 0.618) % 1, 0.65, 0.55),
+            roughness: 0.7, metalness: 0.05,
+          });
+        } else if (m.userData.__origMat) {
+          m.material = m.userData.__origMat;
+          delete m.userData.__origMat;
+        }
+      }
+    });
+  }, [partsMode, partMeshes]);
+
+  useEffect(() => {
+    partMeshes.forEach((ms, nm) => ms.forEach((m) => { m.visible = !hiddenParts.has(nm); }));
+  }, [hiddenParts, partMeshes]);
 
   // skeleton overlay: single helper over the whole scene, rendered OUTSIDE the
   // normalization group (it tracks bone world positions itself — parenting it
@@ -152,6 +198,9 @@ export function ModelViewer({ url }: { url: string }) {
   const [bones, setBones] = useState(false);
   const [hasBones, setHasBones] = useState(false);
   const [inPlace, setInPlace] = useState(true);
+  const [partsMode, setPartsMode] = useState(false);
+  const [parts, setParts] = useState<string[]>([]);
+  const [hiddenParts, setHiddenParts] = useState<Set<string>>(new Set());
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
@@ -164,15 +213,49 @@ export function ModelViewer({ url }: { url: string }) {
         <directionalLight position={[0, 4, -5]} intensity={0.6} />
         <Suspense fallback={null}>
           <ClipProbe url={url} onClips={setClips} />
-          <Model url={url} wireframe={wireframe} clip={clip} bones={bones} inPlace={inPlace} onHasBones={setHasBones} />
+          <Model url={url} wireframe={wireframe} clip={clip} bones={bones} inPlace={inPlace}
+                 partsMode={partsMode} hiddenParts={hiddenParts}
+                 onHasBones={setHasBones} onParts={setParts} />
         </Suspense>
         <OrbitControls makeDefault enableDamping />
         <gridHelper args={[10, 20, "#3a3d45", "#2c2e34"]} position={[0, -1.05, 0]} />
       </Canvas>
+      {partsMode && parts.length > 1 && (
+        <div
+          style={{
+            position: "absolute", top: 8, right: 8, zIndex: 6, maxHeight: "85%",
+            overflowY: "auto", background: "rgba(23,24,28,0.85)", borderRadius: 8,
+            padding: "8px 10px", fontSize: 12, display: "flex", flexDirection: "column", gap: 4,
+          }}
+        >
+          {parts.map((p, i) => (
+            <label key={p} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+                                    opacity: hiddenParts.has(p) ? 0.4 : 1 }}>
+              <input
+                type="checkbox"
+                checked={!hiddenParts.has(p)}
+                onChange={() =>
+                  setHiddenParts((prev) => {
+                    const next = new Set(prev);
+                    next.has(p) ? next.delete(p) : next.add(p);
+                    return next;
+                  })
+                }
+              />
+              <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0,
+                             background: `hsl(${((i * 0.618) % 1) * 360}deg 65% 55%)` }} />
+              {p}
+            </label>
+          ))}
+        </div>
+      )}
       <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 6 }}>
         <button onClick={() => setWireframe((w) => !w)}>{wireframe ? "shaded" : "wireframe"}</button>
         {hasBones && (
           <button onClick={() => setBones((b) => !b)}>{bones ? "hide bones" : "show bones"}</button>
+        )}
+        {parts.length > 1 && (
+          <button onClick={() => setPartsMode((v) => !v)}>{partsMode ? "materials" : `parts (${parts.length})`}</button>
         )}
         {clips.length > 0 && (
           <>

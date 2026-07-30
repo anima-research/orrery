@@ -290,6 +290,28 @@ async def op_image_to_multiview(eng, node: Node) -> None:
         await eng.update_node(node.id, credits=result.credits)
 
 
+def _glb_part_names(path: Path) -> list[str]:
+    """Named meshes/nodes inside a GLB — how Tripo segmentation labels parts."""
+    import json as _json
+    import struct as _struct
+    try:
+        with open(path, "rb") as f:
+            magic, _, _ = _struct.unpack("<4sII", f.read(12))
+            if magic != b"glTF":
+                return []
+            jlen, _ = _struct.unpack("<I4s", f.read(8))
+            g = _json.loads(f.read(jlen))
+        # prefer NODE names: Tripo names them tripo_part_N (its 'part' vocabulary,
+        # and what three.js shows in the viewer); mesh names are the fallback
+        names = [n.get("name") for n in g.get("nodes", [])
+                 if n.get("name") and n.get("mesh") is not None]
+        if len(names) < 2:
+            names = [m.get("name") for m in g.get("meshes", []) if m.get("name")]
+        return [n for n in names if n]
+    except Exception:
+        return []
+
+
 def _generic_postop(op_name: str, endpoint: str, model_ext: str = "glb"):
     async def impl(eng, node: Node) -> None:
         payload = clean_generic_options(op_name, node.options)
@@ -300,6 +322,12 @@ def _generic_postop(op_name: str, endpoint: str, model_ext: str = "glb"):
         elif node.options.get("out_format"):
             ext = node.options["out_format"]
         await _archive_model_outputs(eng, node, result, model_ext=ext)
+        if op_name in ("segment", "complete"):
+            models = await eng.node_assets(node.id, AssetKind.model)
+            if models:
+                parts = _glb_part_names(eng.abs(models[0].path))
+                if parts:
+                    await eng.update_asset_meta(models[0].id, {"parts": parts})
     return impl
 
 

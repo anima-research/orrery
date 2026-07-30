@@ -23,6 +23,82 @@ const CHILD_OPS: Record<string, string[]> = {
 
 const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment"]);
 
+/** Segment-node panel: pick parts, close their holes via mesh/complete. */
+function CloseHolesPanel({
+  node,
+  parts,
+  onRefresh,
+  onSelect,
+}: {
+  node: TreeNode;
+  parts: string[];
+  onRefresh: () => void;
+  onSelect: (id: string) => void;
+}) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState("ai_completion");
+  const [busy, setBusy] = useState(false);
+
+  const launch = async () => {
+    setBusy(true);
+    try {
+      const opts: Record<string, any> = { completion_mode: mode };
+      if (picked.size > 0 && picked.size < parts.length) opts.part_names = [...picked];
+      const nodes = await api.createNodes(node.project_id, "complete", node.id, opts);
+      onRefresh();
+      onSelect(nodes[0].id);
+    } catch (e: any) {
+      alert(`complete: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="section">
+      <h3>Close holes (mesh completion)</h3>
+      {parts.length > 0 ? (
+        <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+          {parts.map((p) => (
+            <label key={p} style={{ display: "flex", gap: 4, alignItems: "center", fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={picked.has(p)}
+                onChange={() =>
+                  setPicked((prev) => {
+                    const next = new Set(prev);
+                    next.has(p) ? next.delete(p) : next.add(p);
+                    return next;
+                  })
+                }
+              />
+              {p}
+            </label>
+          ))}
+        </div>
+      ) : (
+        <div style={{ color: "var(--text-dim)", fontSize: 12, marginBottom: 8 }}>
+          no named parts detected in this GLB — completion will apply to everything
+        </div>
+      )}
+      <div className="row">
+        <select value={mode} onChange={(e) => setMode(e.target.value)}>
+          <option value="ai_completion">ai_completion (50cr, plausible geometry)</option>
+          <option value="quick_cap">quick_cap (30cr, flat caps)</option>
+        </select>
+        <button className="primary" disabled={busy} onClick={launch}>
+          {picked.size === 0 || picked.size === parts.length
+            ? "Close holes on all parts"
+            : `Close holes on ${picked.size} part${picked.size > 1 ? "s" : ""}`}
+        </button>
+        <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          tip: use the viewer's “parts” toggle to see what's what
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Default pane layout of the grid contract — mirrors server GRID_LAYOUT. */
 const DEFAULT_LAYOUT: Record<string, [number, number]> = {
   front: [0, 0], left: [1, 0], back: [0, 1], right: [1, 1],
@@ -386,6 +462,11 @@ export function NodeInspector({
             <img src={`/api/assets/${render.id}/file`} style={{ maxWidth: 300 }} onClick={() => setLightbox(`/api/assets/${render.id}/file`)} alt="" />
           </div>
         </div>
+      )}
+
+      {/* segmentation: close holes on selected parts */}
+      {node.op_type === "segment" && node.status === "completed" && modelAsset && (
+        <CloseHolesPanel node={node} parts={modelAsset.meta.parts ?? []} onRefresh={onRefresh} onSelect={onSelect} />
       )}
 
       {/* branch actions */}
