@@ -37,6 +37,7 @@ class OpType(str, enum.Enum):
     rig = "rig"                  # Tripo rig-check + rig
     retarget = "retarget"        # Tripo animations/retarget
     convert = "convert"          # Tripo models/convert
+    rescale = "rescale"          # local uniform rescale to a target size (free)
     import_model = "import_model"  # external model file into the tree
 
 

@@ -76,9 +76,14 @@ async def quick(body: QuickIn, wait: bool = False, timeout_s: int = 1800,
         if c.status == ChainStatus.completed:
             final = await engine.get_node(c.anchor_node_id)
             assets = await engine.node_assets(final.id)
+            model = next((a for a in assets if a.kind.value == "model"), None)
+            bounds = (model.meta.get("bounds") if model else None)
             return {**result, "status": "completed", "final_node_id": final.id,
                     "assets": [a.model_dump() for a in assets],
-                    "credits": final.credits}
+                    "credits": final.credits,
+                    # absolute mesh dimensions; Tripo normalizes to largest-dim 1.0
+                    # unless auto_size was set — rescale to correct, see /agents.md
+                    "dimensions": bounds}
         if c.status in (ChainStatus.failed, ChainStatus.cancelled):
             return {**result, "status": c.status, "error": c.error}
         await asyncio.sleep(2.0)

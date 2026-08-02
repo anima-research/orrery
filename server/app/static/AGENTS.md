@@ -102,6 +102,16 @@ costs). Summary:
   `pbr`, `texture_quality standard|detailed|extreme`, `geometry_quality`,
   `face_limit`, `quad`, seeds. Invalid params for a model version are stripped
   automatically.
+- **Absolute dimensions & rescale (IMPORTANT)** — Tripo normalizes every mesh to
+  **largest bounding-box dimension = 1.0** (a mug and a house both come out "1.0"),
+  unless `mesh_gen` was run with `auto_size: true`. Every GLB/GLTF model asset
+  carries its real dimensions in `asset.meta.bounds` = `{size:[x,y,z], min, max,
+  largest}` (model units). `/api/quick` returns the final model's bounds as
+  `dimensions`. To CORRECT the size, branch a **rescale** node (local, free,
+  instant): `{op:"rescale", options:{target_size: 1.7}}` sets the largest
+  dimension to 1.7 (or `scale_factor` to multiply directly). The new bounds are
+  on the rescale node's model asset. Do this before sending to eidoverse if the
+  world expects real-world scale.
 - **texture / retopo / segment / complete / rig / retarget / convert** — Tripo
   post-ops, each branched off any model-producing node. Rigging: `rig` with
   `rig_type: auto` (free riggability check picks biped/quadruped/…; model `auto`

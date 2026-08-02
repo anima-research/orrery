@@ -10,15 +10,16 @@ const CHILD_OPS: Record<string, string[]> = {
   image_edit: ["image_edit", "split", "mesh_gen", "image_to_multiview"],
   split: ["mesh_gen"],
   image_to_multiview: ["mesh_gen"],
-  mesh_gen: ["texture", "retopo", "segment", "rig", "convert"],
-  texture: ["retopo", "segment", "rig", "convert"],
-  retopo: ["texture", "rig", "convert"],
+  mesh_gen: ["texture", "retopo", "segment", "rig", "convert", "rescale"],
+  texture: ["retopo", "segment", "rig", "convert", "rescale"],
+  retopo: ["texture", "rig", "convert", "rescale"],
   segment: ["complete"],
-  complete: ["texture", "rig", "convert"],
+  complete: ["texture", "rig", "convert", "rescale"],
   rig: ["retarget", "convert"],
   retarget: ["convert"],
   convert: [],
-  import_model: ["texture", "retopo", "segment", "rig", "convert", "image_to_multiview"],
+  rescale: ["texture", "retopo", "rig", "convert"],
+  import_model: ["texture", "retopo", "segment", "rig", "convert", "image_to_multiview", "rescale"],
 };
 
 const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment"]);
@@ -372,6 +373,30 @@ export function NodeInspector({
           <h3>
             Model {compare && compareModel ? `— comparing with ${compare.op_type} #${compare.id}` : ""}
           </h3>
+          {modelAsset.meta.bounds && (
+            <div className="row" style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8, gap: 10 }}>
+              <span title="absolute bounding-box dimensions (model units; Tripo normalizes to largest=1.0 unless auto_size)">
+                📐 {modelAsset.meta.bounds.size.map((v: number) => v.toFixed(3)).join(" × ")}
+                {" "}(largest {modelAsset.meta.bounds.largest.toFixed(3)})
+              </span>
+              {node.op_type !== "rescale" && (modelAsset.meta.format ?? "glb") === "glb" && (
+                <button
+                  title="rescale to a target largest-dimension (free, local)"
+                  onClick={async () => {
+                    const t = window.prompt(
+                      `Target largest dimension (current ${modelAsset.meta.bounds.largest.toFixed(3)}):`,
+                      "1.7"
+                    );
+                    if (!t) return;
+                    await api.createNodes(node.project_id, "rescale", node.id, { target_size: parseFloat(t) });
+                    onRefresh();
+                  }}
+                >
+                  rescale
+                </button>
+              )}
+            </div>
+          )}
           <div className={`viewer-box ${compare && compareModel ? "compare" : ""}`}>
             {compare && compareModel ? (
               <>

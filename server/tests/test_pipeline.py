@@ -194,3 +194,25 @@ def test_image_model_mappers():
     import pytest as _pt
     with _pt.raises(ValueError):
         model_entry("dalle-9000")
+
+
+# ---------- mesh dimensions + rescale ----------
+
+def test_glb_bounds_and_rescale(tmp_path):
+    from app.pipeline.meshinfo import glb_bounds, wrap_scale
+    from app.clients.fixtures import cube_glb
+    b = glb_bounds(cube_glb())
+    assert b["size"] == [1.0, 1.0, 1.0] and b["largest"] == 1.0
+    out = tmp_path / "scaled.glb"
+    nb = wrap_scale(cube_glb(), out, 2.5)
+    assert abs(nb["largest"] - 2.5) < 1e-4
+    assert abs(glb_bounds(out)["largest"] - 2.5) < 1e-4  # re-read from disk matches
+
+
+def test_rescale_target_size_math(tmp_path):
+    from app.pipeline.meshinfo import glb_bounds, wrap_scale
+    from app.clients.fixtures import cube_glb
+    cur = glb_bounds(cube_glb())["largest"]
+    out = tmp_path / "s.glb"
+    wrap_scale(cube_glb(), out, 1.7 / cur)  # target largest = 1.7
+    assert abs(glb_bounds(out)["largest"] - 1.7) < 1e-4

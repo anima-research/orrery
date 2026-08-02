@@ -224,6 +224,18 @@ OP_SPECS: dict[str, dict[str, Any]] = {
         },
         "credits": "5-10",
     },
+    "rescale": {
+        "provider": "local",
+        "fields": {
+            "target_size": {"type": "float", "default": None,
+                            "desc": "Desired largest bounding-box dimension (e.g. metres). "
+                                    "Tripo normalizes meshes to largest-dim 1.0, so set this to give "
+                                    "the object a real size"},
+            "scale_factor": {"type": "float", "default": None,
+                             "desc": "Multiply size directly (used only if target_size is empty)"},
+        },
+        "desc": "Local uniform rescale — free, instant, no API call. Corrects absolute size.",
+    },
     "import_model": {
         "provider": "local",
         "fields": {},

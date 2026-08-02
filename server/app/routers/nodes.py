@@ -132,8 +132,13 @@ async def import_model(project_id: str, file: UploadFile = File(...),
     ext = (file.filename or "model.glb").rsplit(".", 1)[-1].lower()
     dest = engine.node_dir(project_id, node.id) / f"model.{ext}"
     dest.write_bytes(await file.read())
-    await engine.add_asset(node, AssetKind.model, dest,
-                           {"format": ext, "filename": file.filename})
+    meta = {"format": ext, "filename": file.filename}
+    if ext in ("glb", "gltf"):
+        from ..pipeline.meshinfo import glb_bounds
+        b = glb_bounds(dest)
+        if b:
+            meta["bounds"] = b
+    await engine.add_asset(node, AssetKind.model, dest, meta)
     await engine.update_node(node.id, status=NodeStatus.completed, progress=100,
                              provider="local")
     return await engine.get_node(node.id)

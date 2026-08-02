@@ -84,7 +84,13 @@ async def _archive_model_outputs(eng, node: Node, result, model_ext: str = "glb"
         if ext not in {"glb", "gltf", "fbx", "obj", "usdz", "stl", "3mf", "zip"}:
             ext = model_ext
         path = await get_tripo().download(out["model_url"], d / f"model.{ext}")
-        await eng.add_asset(node, AssetKind.model, path, {"format": ext})
+        meta = {"format": ext}
+        if ext in ("glb", "gltf"):
+            from .meshinfo import glb_bounds
+            b = glb_bounds(path)
+            if b:
+                meta["bounds"] = b
+        await eng.add_asset(node, AssetKind.model, path, meta)
     if out.get("rendered_image_url"):
         path = await get_tripo().download(out["rendered_image_url"], d / "render.png")
         await eng.add_asset(node, AssetKind.render, path, {})
@@ -394,6 +400,37 @@ async def op_rig(eng, node: Node) -> None:
                                  model_ext=opts.get("out_format", "glb"))
 
 
+async def op_rescale(eng, node: Node) -> None:
+    """Local uniform rescale to correct a mesh's absolute size — free, instant,
+    no provider call. target_size sets the largest bounding-box dimension (in
+    whatever units you want, e.g. metres); scale_factor multiplies directly."""
+    from .meshinfo import glb_bounds, wrap_scale
+
+    parent = await eng.get_node(node.parent_id)
+    models = await eng.node_assets(parent.id, AssetKind.model)
+    glbs = [a for a in models if (a.meta.get("format") or "glb") in ("glb", "gltf")]
+    if not glbs:
+        raise RuntimeError("rescale needs a GLB/GLTF parent (convert an FBX node first)")
+    src = eng.abs(glbs[0].path)
+    cur = glb_bounds(src)
+    if not cur or cur["largest"] <= 0:
+        raise RuntimeError("could not measure the parent mesh")
+
+    opts = node.options
+    if opts.get("scale_factor"):
+        factor = float(opts["scale_factor"])
+    elif opts.get("target_size"):
+        factor = float(opts["target_size"]) / cur["largest"]
+    else:
+        raise RuntimeError("set target_size (largest dimension) or scale_factor")
+
+    dst = eng.node_dir(node.project_id, node.id) / "model.glb"
+    new_bounds = wrap_scale(src, dst, factor)
+    await eng.add_asset(node, AssetKind.model, dst,
+                        {"format": "glb", "bounds": new_bounds,
+                         "scale_factor": round(factor, 6)})
+
+
 async def op_import_model(eng, node: Node) -> None:
     # Asset is attached by the upload router before scheduling; nothing to do.
     assets = await eng.node_assets(node.id, AssetKind.model)
@@ -415,5 +452,6 @@ OP_IMPLS = {
     OpType.rig: op_rig,
     OpType.retarget: _generic_postop("retarget", "animations/retarget"),
     OpType.convert: _generic_postop("convert", "models/convert"),
+    OpType.rescale: op_rescale,
     OpType.import_model: op_import_model,
 }

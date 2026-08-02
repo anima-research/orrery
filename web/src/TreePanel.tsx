@@ -15,6 +15,7 @@ const OP_ICONS: Record<string, string> = {
   rig: "🦴",
   retarget: "🏃",
   convert: "📦",
+  rescale: "📐",
   import_model: "📥",
 };
 
