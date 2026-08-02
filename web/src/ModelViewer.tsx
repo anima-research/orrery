@@ -376,7 +376,9 @@ export function ModelViewer({ url, format = "glb", onFuse }: {
       {/* lasso overlay — captures drags while selecting; orbit is paused. */}
       {selectMode && (
         <svg
-          style={{ position: "absolute", inset: 0, zIndex: 7, cursor: "crosshair", touchAction: "none" }}
+          width="100%" height="100%"
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
+                   zIndex: 7, cursor: "crosshair", touchAction: "none" }}
           onPointerDown={(e) => {
             (e.target as Element).setPointerCapture?.(e.pointerId);
             const r = e.currentTarget.getBoundingClientRect();
