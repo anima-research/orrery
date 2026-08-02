@@ -94,7 +94,11 @@ costs). Summary:
 - **image_edit** — img2img on the parent node's image with its own `prompt`.
   Editing a grid keeps grid-ness.
 - **split** — cuts the parent grid into `front/left/back/right.png`. Options:
-  `mapping` (override pane→view), `trim`.
+  `auto_label` (default true — a Haiku vision pass reads which view is in each
+  pane and permutes the crop, fixing the common left/right swap; falls back to
+  the default layout if it can't read a clean 4-view set), `mapping` (explicit
+  pane→view override, wins over auto_label), `trim`. The chosen source is
+  recorded in `options.label_source` (`explicit` | `auto_label` | `default`).
 - **mesh_gen** — Tripo →3D. Off a split (or image_to_multiview) parent: multiview
   mesh from the 4 views. Off an image node directly: single-image mesh (faster,
   no grid needed; back side is imagined by the model).

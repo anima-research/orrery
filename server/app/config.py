@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     blackforest_api_key: str = ""
     gemini_api_key: str = ""
     luma_api_key: str = ""
+    anthropic_api_key: str = ""      # Haiku vision pass for auto-labeling grid views
 
     data_dir: Path = REPO_ROOT / "data"
 

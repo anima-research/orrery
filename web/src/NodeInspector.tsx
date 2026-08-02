@@ -484,7 +484,14 @@ export function NodeInspector({
         <div className="section">
           <h3>Views</h3>
           {node.op_type === "split" && node.status === "completed" ? (
-            <RelabelViews node={node} views={views} onRefresh={onRefresh} onSelect={onSelect} onZoom={setLightbox} />
+            <>
+              {node.options.label_source === "auto_label" && (
+                <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>
+                  🔎 views auto-labeled by vision (Haiku) — verify left/right below
+                </div>
+              )}
+              <RelabelViews node={node} views={views} onRefresh={onRefresh} onSelect={onSelect} onZoom={setLightbox} />
+            </>
           ) : (
             <div className="img-grid">
               {["front", "left", "back", "right"].map((v) => {

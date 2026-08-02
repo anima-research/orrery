@@ -99,8 +99,12 @@ OP_SPECS: dict[str, dict[str, Any]] = {
     "split": {
         "provider": "local",
         "fields": {
+            "auto_label": {"type": "bool", "default": True,
+                           "desc": "Vision pass (Haiku 4.5) reads which view is in each pane and "
+                                   "permutes the crop — fixes gpt-image-2 swapping left/right. "
+                                   "Ignored if a mapping is set; falls back to default if uncertain"},
             "mapping": {"type": "json", "default": None,
-                        "desc": "Override pane mapping {view: [col,row]}; default = grid contract"},
+                        "desc": "Override pane mapping {view: [col,row]}; wins over auto_label"},
             "trim": {"type": "float", "min": 0.0, "max": 0.1, "default": 0.01,
                      "desc": "Edge trim fraction per pane"},
         },

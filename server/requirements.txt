@@ -8,4 +8,5 @@ greenlet>=3
 pydantic-settings>=2.5
 python-multipart>=0.0.12
 cryptography>=43
+anthropic>=0.69
 playwright>=1.48

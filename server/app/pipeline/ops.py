@@ -221,8 +221,22 @@ async def op_split(eng, node: Node) -> None:
     if not grid:
         raise RuntimeError("parent node has no image to split (needs a grid or "
                            "image output — generate with grid_contract, or edit a grid)")
-    mapping = node.options.get("mapping")
-    trim = float(node.options.get("trim", 0.01))
+    opts = node.options
+    trim = float(opts.get("trim", 0.01))
+
+    # mapping priority: explicit override > vision auto-label > default layout
+    mapping = opts.get("mapping")
+    label_source = "explicit" if mapping else "default"
+    if not mapping and opts.get("auto_label", True):
+        from ..clients.labeler import label_grid
+        detected = await label_grid(grid)
+        if detected:
+            mapping = detected
+            label_source = "auto_label"
+    # record what we used so the human can see/override
+    await eng.update_node(node.id, options={**opts, "mapping": mapping,
+                                            "label_source": label_source})
+
     views = split_grid(grid, eng.node_dir(node.project_id, node.id),
                        mapping=mapping, trim=trim)
     for view, path in views.items():
