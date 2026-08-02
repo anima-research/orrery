@@ -223,26 +223,42 @@ async def op_split(eng, node: Node) -> None:
         await eng.add_asset(node, AssetKind.view, path, {"view": view})
 
 
+async def _single_image_mesh(eng, node: Node, src: Path, payload: dict) -> None:
+    """Tripo generation/image-to-model from one image (single-image → 3D;
+    the model imagines the unseen sides). Tripo takes exactly ONE image here —
+    it has no multi-arbitrary-reference mode; multiple images only via
+    multiview, which must be orthographic front/left/back/right."""
+    token = await get_tripo().upload_file(src)
+    # NB: this endpoint wants v2-style `file`, not v3 `input` (verified live)
+    payload["file"] = {"type": src.suffix.lstrip(".").lower() or "png",
+                       "file_token": token}
+    result = await _run_tripo(eng, node, "generation/image-to-model", payload)
+    await _archive_model_outputs(eng, node, result,
+                                 model_ext="fbx" if payload.get("quad") else "glb")
+
+
 async def op_mesh_gen(eng, node: Node) -> None:
     """Multiview mesh from a split parent, or single-image mesh
-    (Tripo generation/image-to-model) when branched off an image node."""
+    (Tripo generation/image-to-model) off an image node OR a ref_set."""
     parent = await eng.get_node(node.parent_id)
     opts = node.options
     payload = clean_mesh_options(opts)
 
     if parent.op_type in (OpType.image_gen, OpType.image_edit):
-        # single unsplit image -> model
         src = await _first_image_asset(eng, parent.id)
         if not src:
             raise RuntimeError("parent image node has no image output")
-        token = await get_tripo().upload_file(src)
-        # NB: this endpoint wants v2-style `file`, not v3 `input` (verified live)
-        payload["file"] = {"type": src.suffix.lstrip(".").lower() or "png",
-                           "file_token": token}
-        result = await _run_tripo(eng, node, "generation/image-to-model", payload)
-        await _archive_model_outputs(eng, node, result,
-                                     model_ext="fbx" if payload.get("quad") else "glb")
-        return
+        return await _single_image_mesh(eng, node, src, payload)
+
+    if parent.op_type == OpType.ref_set:
+        # mesh straight from a reference photo — no image_gen needed
+        refs = await eng.node_assets(parent.id, AssetKind.ref)
+        if not refs:
+            raise RuntimeError("ref_set is empty — add a reference image first")
+        idx = int(opts.get("ref_index", 0))
+        if idx < 0 or idx >= len(refs):
+            raise RuntimeError(f"ref_index {idx} out of range (ref_set has {len(refs)} images)")
+        return await _single_image_mesh(eng, node, eng.abs(refs[idx].path), payload)
 
     if parent.op_type == OpType.image_to_multiview and parent.provider_task_id:
         payload["inputs"] = [{"task_id": parent.provider_task_id}]

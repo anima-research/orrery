@@ -5,7 +5,7 @@ import type { Asset, OpCatalog, Tree, TreeNode } from "./types";
 
 /** Which ops can branch off a node, by what the node produces. */
 const CHILD_OPS: Record<string, string[]> = {
-  ref_set: ["image_gen"],
+  ref_set: ["image_gen", "mesh_gen"],
   image_gen: ["image_edit", "split", "mesh_gen", "image_to_multiview"],
   image_edit: ["image_edit", "split", "mesh_gen", "image_to_multiview"],
   split: ["mesh_gen"],

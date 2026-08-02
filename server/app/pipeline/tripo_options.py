@@ -111,6 +111,9 @@ OP_SPECS: dict[str, dict[str, Any]] = {
         "fields": {**MESH_GEN_FIELDS,
                    "views": {"type": "json", "default": None,
                              "desc": "Subset of views to send, e.g. [\"front\",\"back\"]; default all 4"},
+                   "ref_index": {"type": "int", "min": 0, "default": 0,
+                                 "desc": "Off a ref_set: which reference image to mesh from (single-image → 3D). "
+                                         "Tripo takes one image here; the model imagines the unseen sides"},
                    "n": {"type": "int", "min": 1, "max": 6, "default": 1, "desc": "Parallel candidates"}},
         "credits": "20 (H) / 30 (P1) + quality surcharges",
         "desc": "Multiview mesh from a split node — or single-image mesh when "
