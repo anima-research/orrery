@@ -268,6 +268,35 @@ def test_glb_fuse_preserves_bounds_and_materials(tmp_path):
     assert {p["material"] for p in prims} == {0, 2}         # both materials preserved
 
 
+def test_glb_fuse_under_wrapper_removes_merged_nodes(tmp_path):
+    """Parts nested under a wrapper (as rescale's orrery_scale produces) must still
+    be detached on fuse — regression for fusing 3-of-4 yielding *more* parts."""
+    from app.pipeline.meshinfo import glb_fuse, wrap_scale, read_glb
+    flat = _parts_glb(tmp_path / "seg.glb", [(0, 0, 0), (3, 0, 0), (0, 4, 0), (0, 0, 5)])
+    wrapped = tmp_path / "rescaled.glb"
+    wrap_scale(flat, wrapped, 2.0)  # nests the 4 parts under one scale node
+
+    out = tmp_path / "fused.glb"
+    res = glb_fuse(wrapped, out, [["tripo_part_0", "tripo_part_1", "tripo_part_2"]])
+    assert res["fused"] == 1
+    # 4 parts, fuse 3 -> 2 (one fused + the untouched part_3), NOT 4+
+    assert sorted(res["parts"]) == ["tripo_part_3", "tripo_part_fused_0"], res["parts"]
+
+    # the merged member nodes are gone from the graph, not just orphaned in scene[]
+    g, _ = read_glb(out)
+    nodes = g["nodes"]
+    reachable, stack = set(), list(g["scenes"][g.get("scene", 0)]["nodes"])
+    while stack:
+        i = stack.pop()
+        if i in reachable:
+            continue
+        reachable.add(i)
+        stack.extend(nodes[i].get("children", []))
+    live = {nodes[i].get("name") for i in reachable if nodes[i].get("mesh") is not None}
+    assert "tripo_part_1" not in live and "tripo_part_2" not in live
+    assert live == {"tripo_part_3", "tripo_part_fused_0"}
+
+
 def test_glb_fuse_rejects_singletons(tmp_path):
     from app.pipeline.meshinfo import glb_fuse
     src = _parts_glb(tmp_path / "seg.glb", [(0, 0, 0), (3, 0, 0)])

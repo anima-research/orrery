@@ -59,7 +59,14 @@ function ModelPane({
           onSelect(nodes[0].id);
         }
       : undefined;
-  return <ModelViewer url={`/api/assets/${asset.id}/file`} format={fmt} onFuse={onFuse} />;
+  return (
+    <ModelViewer
+      url={`/api/assets/${asset.id}/file`}
+      format={fmt}
+      onFuse={onFuse}
+      partNames={Array.isArray(asset.meta.parts) ? asset.meta.parts : undefined}
+    />
+  );
 }
 
 /** Segment-node panel: pick parts, close their holes via mesh/complete. */

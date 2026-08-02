@@ -194,6 +194,23 @@ def glb_fuse(src: Path, dst: Path, groups: list[list[str]]) -> dict:
             if mn:
                 name2node.setdefault(mn, i)
 
+    # child -> parent index, so a merged node is detached from wherever it actually
+    # hangs (a scene root, or a child of a wrapper e.g. rescale's orrery_scale node,
+    # or an armature) — not only from scene["nodes"].
+    parent_of: dict[int, int] = {}
+    for pi, n in enumerate(nodes):
+        for c in n.get("children", []):
+            parent_of[c] = pi
+
+    def detach(m: int) -> None:
+        pi = parent_of.get(m)
+        if pi is not None:
+            kids = nodes[pi].get("children")
+            if kids and m in kids:
+                kids.remove(m)
+        elif m in scene.get("nodes", []):
+            scene["nodes"].remove(m)
+
     def bake_in_place(acc_idx: int, offset: tuple[float, float, float]) -> None:
         """Add offset to every vertex of a tightly-packed VEC3/float POSITION
         accessor, writing back into new_bin and refreshing the accessor min/max."""
@@ -243,13 +260,23 @@ def glb_fuse(src: Path, dst: Path, groups: list[list[str]]) -> dict:
         nodes[target]["name"] = f"tripo_part_fused_{gi}"
         nodes[target].pop("translation", None)  # baked into vertices
         for m in member_idxs[1:]:
-            if m in scene.get("nodes", []):
-                scene["nodes"].remove(m)
+            detach(m)
         fused += 1
 
     write_glb(dst, gltf, bytes(new_bin))
-    # remaining part names (node names of scene nodes that carry a mesh)
-    parts = [nodes[i].get("name") for i in scene.get("nodes", [])
+    # remaining part names: every still-referenced node that carries a mesh (parts
+    # can live under a wrapper, so walk the scene graph, not just scene["nodes"])
+    reachable: list[int] = []
+    seen: set[int] = set()
+    stack = list(scene.get("nodes", []))
+    while stack:
+        i = stack.pop()
+        if i in seen:
+            continue
+        seen.add(i)
+        reachable.append(i)
+        stack.extend(nodes[i].get("children", []))
+    parts = [nodes[i].get("name") for i in reachable
              if nodes[i].get("mesh") is not None and nodes[i].get("name")]
     return {"parts": parts, "fused": fused, "bounds": compute_bounds(gltf)}
 

@@ -87,6 +87,7 @@ interface InnerProps {
   inPlace: boolean;
   partsMode: boolean;
   hiddenParts: Set<string>;
+  partNames?: string[];
   selectMode: boolean;
   selected: Set<string>;
   pickerRef: React.MutableRefObject<Picker | null>;
@@ -114,6 +115,7 @@ function ModelInner({
   inPlace,
   partsMode,
   hiddenParts,
+  partNames,
   selectMode,
   selected,
   pickerRef,
@@ -148,9 +150,23 @@ function ModelInner({
     return b;
   }, [object]);
 
-  // named parts (segmentation output = one named mesh per part)
+  // named parts. The server is authoritative on what the parts ARE (asset.meta
+  // .parts = glTF node names); we just locate each part's meshes. A fused part is
+  // a multi-primitive node → three.js splits it into one child Mesh per primitive,
+  // so we collect the whole named node's subtree as ONE part (not N). Falls back to
+  // mesh-name grouping when no part list is supplied (non-segmented models).
   const partMeshes = useMemo(() => {
     const map = new Map<string, THREE.Mesh[]>();
+    if (partNames && partNames.length) {
+      for (const nm of partNames) {
+        const node = object.getObjectByName(nm);
+        if (!node) continue;
+        const arr: THREE.Mesh[] = [];
+        node.traverse((c: any) => { if (c.isMesh) arr.push(c); });
+        if (arr.length) map.set(nm, arr);
+      }
+      if (map.size) return map;
+    }
     object.traverse((o: any) => {
       if (o.isMesh) {
         const nm = o.name || o.parent?.name || `part_${map.size}`;
@@ -159,7 +175,7 @@ function ModelInner({
       }
     });
     return map;
-  }, [object]);
+  }, [object, partNames]);
 
   useEffect(() => {
     onParts(partMeshes.size > 1 ? [...partMeshes.keys()] : []);
@@ -300,9 +316,10 @@ function pointInPolygon(pt: [number, number], poly: [number, number][]): boolean
 
 /** onFuse: merge the given part names into one — creates a fuse child node.
  * When present (and the model has >1 part) the viewer offers lasso part-selection. */
-export function ModelViewer({ url, format = "glb", onFuse }: {
+export function ModelViewer({ url, format = "glb", onFuse, partNames }: {
   url: string; format?: string;
   onFuse?: (parts: string[]) => Promise<void>;
+  partNames?: string[];
 }) {
   const [wireframe, setWireframe] = useState(false);
   const [clips, setClips] = useState<string[]>([]);
@@ -348,7 +365,7 @@ export function ModelViewer({ url, format = "glb", onFuse }: {
   }
 
   const inner = {
-    wireframe, clip, bones, inPlace, partsMode, hiddenParts, selectMode, selected, pickerRef,
+    wireframe, clip, bones, inPlace, partsMode, hiddenParts, partNames, selectMode, selected, pickerRef,
     onHasBones: setHasBones, onParts: setParts, onClips: setClips,
   };
 
