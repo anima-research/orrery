@@ -26,6 +26,10 @@ async def screenshots(node_id: str, count: int = 8, size: int = 1024,
     models = await engine.node_assets(node_id, AssetKind.model)
     if not models:
         raise HTTPException(400, "node has no model output")
+    fmt = (models[0].meta.get("format") or "glb").lower()
+    if fmt not in ("glb", "gltf"):
+        raise HTTPException(400, f"screenshots need GLB/GLTF (this node is .{fmt}) — "
+                                 "branch a convert with format GLTF first")
     count = max(1, min(24, count))
     size = max(128, min(2048, size))
     try:

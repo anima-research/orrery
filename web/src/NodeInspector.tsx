@@ -23,6 +23,26 @@ const CHILD_OPS: Record<string, string[]> = {
 
 const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment"]);
 
+const VIEWABLE = new Set(["glb", "gltf", "fbx"]);
+
+/** Viewer for viewable formats; download card for the rest (usdz/stl/3mf/obj). */
+function ModelPane({ asset }: { asset: Asset }) {
+  const fmt = (asset.meta.format ?? "glb").toLowerCase();
+  if (!VIEWABLE.has(fmt)) {
+    return (
+      <div style={{ display: "grid", placeItems: "center", height: "100%", color: "var(--text-dim)", fontSize: 13, textAlign: "center" }}>
+        <div>
+          .{fmt} — no in-browser preview
+          <div style={{ marginTop: 10 }}>
+            <a href={`/api/assets/${asset.id}/file`} download><button>Download {fmt.toUpperCase()}</button></a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return <ModelViewer url={`/api/assets/${asset.id}/file`} format={fmt} />;
+}
+
 /** Segment-node panel: pick parts, close their holes via mesh/complete. */
 function CloseHolesPanel({
   node,
@@ -355,11 +375,11 @@ export function NodeInspector({
           <div className={`viewer-box ${compare && compareModel ? "compare" : ""}`}>
             {compare && compareModel ? (
               <>
-                <div><ModelViewer url={`/api/assets/${compareModel.id}/file`} /></div>
-                <div><ModelViewer url={`/api/assets/${modelAsset.id}/file`} /></div>
+                <div><ModelPane asset={compareModel} /></div>
+                <div><ModelPane asset={modelAsset} /></div>
               </>
             ) : (
-              <ModelViewer url={`/api/assets/${modelAsset.id}/file`} />
+              <ModelPane asset={modelAsset} />
             )}
           </div>
           <div className="row" style={{ marginTop: 8 }}>

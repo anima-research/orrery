@@ -1,7 +1,38 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import { OrbitControls, useAnimations, useGLTF, useProgress } from "@react-three/drei";
 import * as THREE from "three";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+
+/** Bad files (or wrong formats) degrade to a message, not a blank page. */
+class ViewerBoundary extends React.Component<
+  { children: React.ReactNode; resetKey: string },
+  { err: Error | null }
+> {
+  state = { err: null as Error | null };
+  static getDerivedStateFromError(err: Error) {
+    return { err };
+  }
+  componentDidUpdate(prev: { resetKey: string }) {
+    if (prev.resetKey !== (this.props as any).resetKey && this.state.err) this.setState({ err: null });
+  }
+  render() {
+    if (this.state.err) {
+      return (
+        <div style={{ display: "grid", placeItems: "center", height: "100%", padding: 20, textAlign: "center", color: "var(--text-dim)", fontSize: 13 }}>
+          <div>
+            couldn't load this model in the viewer
+            <div style={{ fontSize: 11, marginTop: 6, maxWidth: 420, wordBreak: "break-word" }}>
+              {String(this.state.err.message || this.state.err).slice(0, 180)}
+            </div>
+            <div style={{ marginTop: 8 }}>download it, or branch a convert → GLTF to preview here</div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /** DOM overlay shown while any model asset is streaming in (byte-accurate). */
 function LoadingOverlay() {
@@ -43,18 +74,9 @@ function LoadingOverlay() {
   );
 }
 
-function Model({
-  url,
-  wireframe,
-  clip,
-  bones,
-  inPlace,
-  partsMode,
-  hiddenParts,
-  onHasBones,
-  onParts,
-}: {
-  url: string;
+interface InnerProps {
+  object: THREE.Object3D;
+  animations: THREE.AnimationClip[];
   wireframe: boolean;
   clip: string | null;
   bones: boolean;
@@ -63,9 +85,36 @@ function Model({
   hiddenParts: Set<string>;
   onHasBones: (has: boolean) => void;
   onParts: (parts: string[]) => void;
-}) {
+  onClips: (clips: string[]) => void;
+}
+
+function GltfModel({ url, ...rest }: { url: string } & Omit<InnerProps, "object" | "animations">) {
   const gltf = useGLTF(url);
-  const { actions } = useAnimations(gltf.animations, gltf.scene);
+  return <ModelInner object={gltf.scene} animations={gltf.animations} {...rest} />;
+}
+
+function FbxModel({ url, ...rest }: { url: string } & Omit<InnerProps, "object" | "animations">) {
+  const fbx = useLoader(FBXLoader, url);
+  return <ModelInner object={fbx} animations={fbx.animations ?? []} {...rest} />;
+}
+
+function ModelInner({
+  object,
+  animations,
+  wireframe,
+  clip,
+  bones,
+  inPlace,
+  partsMode,
+  hiddenParts,
+  onHasBones,
+  onParts,
+  onClips,
+}: InnerProps) {
+  const { actions } = useAnimations(animations, object);
+  useEffect(() => {
+    onClips(animations.map((a) => a.name));
+  }, [animations, onClips]);
   const groupRef = useRef<THREE.Group>(null);
 
   useEffect(() => {
@@ -75,23 +124,23 @@ function Model({
 
   // skinned meshes: pose can leave the bind-pose bounds -> never frustum-cull
   useEffect(() => {
-    gltf.scene.traverse((o: any) => {
+    object.traverse((o: any) => {
       if (o.isSkinnedMesh) o.frustumCulled = false;
     });
-  }, [gltf.scene]);
+  }, [object]);
 
   const rootBone = useMemo(() => {
     let b: THREE.Bone | null = null;
-    gltf.scene.traverse((o: any) => {
+    object.traverse((o: any) => {
       if (!b && o.isSkinnedMesh && o.skeleton?.bones?.length) b = o.skeleton.bones[0];
     });
     return b;
-  }, [gltf.scene]);
+  }, [object]);
 
   // named parts (segmentation output = one named mesh per part)
   const partMeshes = useMemo(() => {
     const map = new Map<string, THREE.Mesh[]>();
-    gltf.scene.traverse((o: any) => {
+    object.traverse((o: any) => {
       if (o.isMesh) {
         const nm = o.name || o.parent?.name || `part_${map.size}`;
         if (!map.has(nm)) map.set(nm, []);
@@ -99,7 +148,7 @@ function Model({
       }
     });
     return map;
-  }, [gltf.scene]);
+  }, [object]);
 
   useEffect(() => {
     onParts(partMeshes.size > 1 ? [...partMeshes.keys()] : []);
@@ -133,37 +182,37 @@ function Model({
   // inside the scaled group would double-transform it)
   const helper = useMemo(() => {
     let skinned = false;
-    gltf.scene.traverse((o: any) => {
+    object.traverse((o: any) => {
       if (o.isSkinnedMesh && o.skeleton?.bones?.length) skinned = true;
     });
     if (!skinned) return null;
-    const h = new THREE.SkeletonHelper(gltf.scene);
+    const h = new THREE.SkeletonHelper(object);
     (h.material as THREE.LineBasicMaterial).depthTest = false;
     h.renderOrder = 999;
     return h;
-  }, [gltf.scene]);
+  }, [object]);
 
   useEffect(() => onHasBones(!!helper), [helper, onHasBones]);
 
   useEffect(() => {
-    gltf.scene.traverse((o: any) => {
+    object.traverse((o: any) => {
       if (o.isMesh && o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((m: any) => (m.wireframe = wireframe));
       }
     });
-  }, [wireframe, gltf.scene]);
+  }, [wireframe, object]);
 
   // auto-center + scale to unit-ish size
   const { position, scale } = useMemo(() => {
-    const box = new THREE.Box3().setFromObject(gltf.scene);
+    const box = new THREE.Box3().setFromObject(object);
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const s = sphere.radius > 0 ? 1.6 / sphere.radius : 1;
     return {
       scale: s,
       position: [-sphere.center.x * s, -sphere.center.y * s, -sphere.center.z * s] as [number, number, number],
     };
-  }, [gltf.scene]);
+  }, [object]);
 
   // root-motion compensation: pin the root bone's XZ to the viewer origin so
   // clips that translate the root (e.g. Tripo preset:walk) play "in place".
@@ -184,14 +233,14 @@ function Model({
   return (
     <>
       <group ref={groupRef} position={position} scale={scale}>
-        <primitive object={gltf.scene} />
+        <primitive object={object} />
       </group>
       {bones && helper && <primitive object={helper} />}
     </>
   );
 }
 
-export function ModelViewer({ url }: { url: string }) {
+export function ModelViewer({ url, format = "glb" }: { url: string; format?: string }) {
   const [wireframe, setWireframe] = useState(false);
   const [clips, setClips] = useState<string[]>([]);
   const [clip, setClip] = useState<string | null>(null);
@@ -204,6 +253,7 @@ export function ModelViewer({ url }: { url: string }) {
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
+      <ViewerBoundary resetKey={url}>
       <LoadingOverlay />
       <Canvas camera={{ position: [2.2, 1.4, 2.6], fov: 40 }} gl={{ antialias: true }}>
         <color attach="background" args={["#232529"]} />
@@ -212,10 +262,15 @@ export function ModelViewer({ url }: { url: string }) {
         <directionalLight position={[-4, 2, -2]} intensity={0.8} />
         <directionalLight position={[0, 4, -5]} intensity={0.6} />
         <Suspense fallback={null}>
-          <ClipProbe url={url} onClips={setClips} />
-          <Model url={url} wireframe={wireframe} clip={clip} bones={bones} inPlace={inPlace}
-                 partsMode={partsMode} hiddenParts={hiddenParts}
-                 onHasBones={setHasBones} onParts={setParts} />
+          {format === "fbx" ? (
+            <FbxModel url={url} wireframe={wireframe} clip={clip} bones={bones} inPlace={inPlace}
+                      partsMode={partsMode} hiddenParts={hiddenParts}
+                      onHasBones={setHasBones} onParts={setParts} onClips={setClips} />
+          ) : (
+            <GltfModel url={url} wireframe={wireframe} clip={clip} bones={bones} inPlace={inPlace}
+                       partsMode={partsMode} hiddenParts={hiddenParts}
+                       onHasBones={setHasBones} onParts={setParts} onClips={setClips} />
+          )}
         </Suspense>
         <OrbitControls makeDefault enableDamping />
         <gridHelper args={[10, 20, "#3a3d45", "#2c2e34"]} position={[0, -1.05, 0]} />
@@ -275,14 +330,8 @@ export function ModelViewer({ url }: { url: string }) {
           </>
         )}
       </div>
+      </ViewerBoundary>
     </div>
   );
 }
 
-function ClipProbe({ url, onClips }: { url: string; onClips: (c: string[]) => void }) {
-  const gltf = useGLTF(url);
-  useEffect(() => {
-    onClips(gltf.animations.map((a) => a.name));
-  }, [gltf.animations, onClips]);
-  return null;
-}
