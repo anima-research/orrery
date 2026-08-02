@@ -12,6 +12,7 @@ const OP_ICONS: Record<string, string> = {
   retopo: "🕸",
   segment: "🧩",
   complete: "🩹",
+  fuse: "⛓",
   rig: "🦴",
   retarget: "🏃",
   convert: "📦",

@@ -156,6 +156,104 @@ def glb_bounds(path: Path) -> dict | None:
 
 # ---------- rescale ----------
 
+def _read_positions(gltf: dict, bin_chunk: bytes, accessor_idx: int) -> list[tuple[float, float, float]]:
+    acc = gltf["accessors"][accessor_idx]
+    bv = gltf["bufferViews"][acc["bufferView"]]
+    base = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+    stride = bv.get("byteStride") or 12
+    n = acc["count"]
+    out = []
+    for i in range(n):
+        off = base + i * stride
+        out.append(struct.unpack_from("<fff", bin_chunk, off))
+    return out
+
+
+def glb_fuse(src: Path, dst: Path, groups: list[list[str]]) -> dict:
+    """Merge each group of named parts into one part. Each part node's translation
+    is baked into its POSITION data *in place* (Tripo parts are translation-only
+    with their own un-shared, un-interleaved POSITION accessor), so geometry and
+    per-part materials are preserved exactly, the buffer never grows, and no Tripo
+    round-trip is needed. Parts not in any group are left untouched.
+    Returns {parts, fused, bounds}."""
+    gltf, bin_chunk = read_glb(src)
+    nodes = gltf["nodes"]
+    meshes = gltf.setdefault("meshes", [])
+    accessors = gltf["accessors"]
+    buffer_views = gltf["bufferViews"]
+    scene = gltf["scenes"][gltf.get("scene", 0)]
+    new_bin = bytearray(bin_chunk)
+
+    # part identifier -> node index (node name, then mesh name)
+    name2node: dict[str, int] = {}
+    for i, n in enumerate(nodes):
+        if n.get("name"):
+            name2node.setdefault(n["name"], i)
+        if n.get("mesh") is not None:
+            mn = meshes[n["mesh"]].get("name")
+            if mn:
+                name2node.setdefault(mn, i)
+
+    def bake_in_place(acc_idx: int, offset: tuple[float, float, float]) -> None:
+        """Add offset to every vertex of a tightly-packed VEC3/float POSITION
+        accessor, writing back into new_bin and refreshing the accessor min/max."""
+        acc = accessors[acc_idx]
+        bv = buffer_views[acc["bufferView"]]
+        base = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+        stride = bv.get("byteStride") or 12
+        ox, oy, oz = offset
+        lo = [math.inf, math.inf, math.inf]
+        hi = [-math.inf, -math.inf, -math.inf]
+        for i in range(acc["count"]):
+            off = base + i * stride
+            x, y, z = struct.unpack_from("<fff", new_bin, off)
+            x, y, z = x + ox, y + oy, z + oz
+            struct.pack_into("<fff", new_bin, off, x, y, z)
+            lo[0] = min(lo[0], x); hi[0] = max(hi[0], x)
+            lo[1] = min(lo[1], y); hi[1] = max(hi[1], y)
+            lo[2] = min(lo[2], z); hi[2] = max(hi[2], z)
+        acc["min"], acc["max"] = lo, hi
+
+    fused = 0
+    used: set[int] = set()   # nodes already consumed by an earlier group
+    baked: set[int] = set()  # accessors already offset (never bake twice)
+    for gi, group in enumerate(groups):
+        member_idxs: list[int] = []
+        for nm in group:
+            idx = name2node.get(nm)
+            if idx is not None and idx not in member_idxs and idx not in used:
+                member_idxs.append(idx)
+        if len(member_idxs) < 2:
+            continue  # nothing to merge
+        used.update(member_idxs)
+        new_prims = []
+        for m in member_idxs:
+            node = nodes[m]
+            tr = node.get("translation", [0, 0, 0])
+            for prim in meshes[node["mesh"]].get("primitives", []):
+                pos_acc = prim.get("attributes", {}).get("POSITION")
+                if pos_acc is not None and tr != [0, 0, 0] and pos_acc not in baked:
+                    bake_in_place(pos_acc, (tr[0], tr[1], tr[2]))
+                    baked.add(pos_acc)
+                new_prims.append(prim)
+        # repurpose the first member as the fused node; drop the rest from the scene
+        target = member_idxs[0]
+        meshes.append({"name": f"tripo_mesh_fused_{gi}", "primitives": new_prims})
+        nodes[target]["mesh"] = len(meshes) - 1
+        nodes[target]["name"] = f"tripo_part_fused_{gi}"
+        nodes[target].pop("translation", None)  # baked into vertices
+        for m in member_idxs[1:]:
+            if m in scene.get("nodes", []):
+                scene["nodes"].remove(m)
+        fused += 1
+
+    write_glb(dst, gltf, bytes(new_bin))
+    # remaining part names (node names of scene nodes that carry a mesh)
+    parts = [nodes[i].get("name") for i in scene.get("nodes", [])
+             if nodes[i].get("mesh") is not None and nodes[i].get("name")]
+    return {"parts": parts, "fused": fused, "bounds": compute_bounds(gltf)}
+
+
 def wrap_scale(src: Path, dst: Path, factor: float) -> dict:
     """Bake a uniform scale by wrapping the scene under one scale node.
     Skin-safe (bones scale with the mesh). Returns the new bounds."""

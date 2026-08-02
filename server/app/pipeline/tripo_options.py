@@ -240,6 +240,21 @@ OP_SPECS: dict[str, dict[str, Any]] = {
         },
         "desc": "Local uniform rescale — free, instant, no API call. Corrects absolute size.",
     },
+    "fuse": {
+        "provider": "local",
+        "fields": {
+            "groups": {"type": "json", "default": None,
+                       "desc": "List of part-name lists; each inner list of 2+ names "
+                               "(e.g. [\"tripo_part_3\",\"tripo_part_7\"]) collapses into one "
+                               "part. Parts not listed are left untouched."},
+            "parts": {"type": "json", "default": None,
+                      "desc": "Shorthand for a single group — merge just these names into one part."},
+        },
+        "desc": "Local part merge — free, instant, no API call. Baked-in-place, so geometry, "
+                "per-part materials and absolute size are preserved; the buffer does not grow. "
+                "Cuts an over-segmented mesh (60+ parts) down to a handful. In the viewer, "
+                "lasso-select parts or tick the legend to build a group, then fuse.",
+    },
     "import_model": {
         "provider": "local",
         "fields": {},

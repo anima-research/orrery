@@ -13,8 +13,9 @@ const CHILD_OPS: Record<string, string[]> = {
   mesh_gen: ["texture", "retopo", "segment", "rig", "convert", "rescale"],
   texture: ["retopo", "segment", "rig", "convert", "rescale"],
   retopo: ["texture", "rig", "convert", "rescale"],
-  segment: ["complete"],
-  complete: ["texture", "rig", "convert", "rescale"],
+  segment: ["complete", "fuse"],
+  complete: ["texture", "rig", "convert", "rescale", "fuse"],
+  fuse: ["fuse", "complete", "texture", "retopo", "rig", "convert", "rescale"],
   rig: ["retarget", "convert"],
   retarget: ["convert"],
   convert: [],
@@ -22,12 +23,21 @@ const CHILD_OPS: Record<string, string[]> = {
   import_model: ["texture", "retopo", "segment", "rig", "convert", "image_to_multiview", "rescale"],
 };
 
-const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment"]);
+const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment", "fuse"]);
 
 const VIEWABLE = new Set(["glb", "gltf", "fbx"]);
 
-/** Viewer for viewable formats; download card for the rest (usdz/stl/3mf/obj). */
-function ModelPane({ asset }: { asset: Asset }) {
+/** Viewer for viewable formats; download card for the rest (usdz/stl/3mf/obj).
+ * When a node + callbacks are supplied and the model is a GLB, the viewer offers
+ * lasso part-selection → branch a `fuse` child that merges the picked parts. */
+function ModelPane({
+  asset, node, onRefresh, onSelect,
+}: {
+  asset: Asset;
+  node?: TreeNode;
+  onRefresh?: () => void;
+  onSelect?: (id: string) => void;
+}) {
   const fmt = (asset.meta.format ?? "glb").toLowerCase();
   if (!VIEWABLE.has(fmt)) {
     return (
@@ -41,7 +51,15 @@ function ModelPane({ asset }: { asset: Asset }) {
       </div>
     );
   }
-  return <ModelViewer url={`/api/assets/${asset.id}/file`} format={fmt} />;
+  const onFuse =
+    node && onRefresh && onSelect && (fmt === "glb" || fmt === "gltf")
+      ? async (parts: string[]) => {
+          const nodes = await api.createNodes(node.project_id, "fuse", node.id, { parts });
+          onRefresh();
+          onSelect(nodes[0].id);
+        }
+      : undefined;
+  return <ModelViewer url={`/api/assets/${asset.id}/file`} format={fmt} onFuse={onFuse} />;
 }
 
 /** Segment-node panel: pick parts, close their holes via mesh/complete. */
@@ -404,7 +422,7 @@ export function NodeInspector({
                 <div><ModelPane asset={modelAsset} /></div>
               </>
             ) : (
-              <ModelPane asset={modelAsset} />
+              <ModelPane asset={modelAsset} node={node} onRefresh={onRefresh} onSelect={onSelect} />
             )}
           </div>
           <div className="row" style={{ marginTop: 8 }}>

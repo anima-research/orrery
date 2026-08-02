@@ -1,8 +1,12 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
 import { OrbitControls, useAnimations, useGLTF, useProgress } from "@react-three/drei";
 import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+
+/** Bridge so the DOM lasso overlay (outside the Canvas) can project a part's
+ * world centroid to screen pixels using the live camera. */
+type Picker = { project: (name: string) => [number, number] | null; names: string[] };
 
 /** Bad files (or wrong formats) degrade to a message, not a blank page. */
 class ViewerBoundary extends React.Component<
@@ -83,6 +87,9 @@ interface InnerProps {
   inPlace: boolean;
   partsMode: boolean;
   hiddenParts: Set<string>;
+  selectMode: boolean;
+  selected: Set<string>;
+  pickerRef: React.MutableRefObject<Picker | null>;
   onHasBones: (has: boolean) => void;
   onParts: (parts: string[]) => void;
   onClips: (clips: string[]) => void;
@@ -107,11 +114,15 @@ function ModelInner({
   inPlace,
   partsMode,
   hiddenParts,
+  selectMode,
+  selected,
+  pickerRef,
   onHasBones,
   onParts,
   onClips,
 }: InnerProps) {
   const { actions } = useAnimations(animations, object);
+  const { camera, gl } = useThree();
   useEffect(() => {
     onClips(animations.map((a) => a.name));
   }, [animations, onClips]);
@@ -154,15 +165,19 @@ function ModelInner({
     onParts(partMeshes.size > 1 ? [...partMeshes.keys()] : []);
   }, [partMeshes, onParts]);
 
-  // color-by-part override (originals restored on toggle-off)
+  // color-by-part override (originals restored on toggle-off). Selected parts
+  // are forced bright + emissive so a lasso pick reads clearly against the hues.
   useEffect(() => {
     const names = [...partMeshes.keys()];
     names.forEach((nm, i) => {
+      const sel = selected.has(nm);
       for (const m of partMeshes.get(nm)!) {
         if (partsMode) {
           if (!m.userData.__origMat) m.userData.__origMat = m.material;
           m.material = new THREE.MeshStandardMaterial({
-            color: new THREE.Color().setHSL((i * 0.618) % 1, 0.65, 0.55),
+            color: sel ? new THREE.Color(0xffffff) : new THREE.Color().setHSL((i * 0.618) % 1, 0.65, 0.55),
+            emissive: sel ? new THREE.Color(0x3355ff) : new THREE.Color(0x000000),
+            emissiveIntensity: sel ? 0.6 : 0,
             roughness: 0.7, metalness: 0.05,
           });
         } else if (m.userData.__origMat) {
@@ -171,7 +186,40 @@ function ModelInner({
         }
       }
     });
-  }, [partsMode, partMeshes]);
+  }, [partsMode, partMeshes, selected]);
+
+  // part centroids in world space (model is static; only the camera moves while
+  // selecting) → recomputed when parts change or select mode turns on
+  const centroidsRef = useRef<Map<string, THREE.Vector3>>(new Map());
+  useEffect(() => {
+    if (!selectMode) return;
+    const g = groupRef.current;
+    if (!g) return;
+    g.updateWorldMatrix(true, true);
+    const m = new Map<string, THREE.Vector3>();
+    partMeshes.forEach((ms, nm) => {
+      const box = new THREE.Box3();
+      ms.forEach((mesh) => box.expandByObject(mesh));
+      if (!box.isEmpty()) m.set(nm, box.getCenter(new THREE.Vector3()));
+    });
+    centroidsRef.current = m;
+  }, [selectMode, partMeshes]);
+
+  // expose a live projector to the DOM overlay (camera is mutated in place by
+  // OrbitControls, so reading it at pointer-up gives the current view)
+  useEffect(() => {
+    pickerRef.current = {
+      names: [...partMeshes.keys()],
+      project: (nm) => {
+        const c = centroidsRef.current.get(nm);
+        if (!c) return null;
+        const v = c.clone().project(camera);
+        const el = gl.domElement;
+        return [(v.x * 0.5 + 0.5) * el.clientWidth, (-v.y * 0.5 + 0.5) * el.clientHeight];
+      },
+    };
+    return () => { pickerRef.current = null; };
+  }, [pickerRef, camera, gl, partMeshes]);
 
   useEffect(() => {
     partMeshes.forEach((ms, nm) => ms.forEach((m) => { m.visible = !hiddenParts.has(nm); }));
@@ -240,7 +288,22 @@ function ModelInner({
   );
 }
 
-export function ModelViewer({ url, format = "glb" }: { url: string; format?: string }) {
+function pointInPolygon(pt: [number, number], poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > pt[1]) !== (yj > pt[1]) &&
+        pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** onFuse: merge the given part names into one — creates a fuse child node.
+ * When present (and the model has >1 part) the viewer offers lasso part-selection. */
+export function ModelViewer({ url, format = "glb", onFuse }: {
+  url: string; format?: string;
+  onFuse?: (parts: string[]) => Promise<void>;
+}) {
   const [wireframe, setWireframe] = useState(false);
   const [clips, setClips] = useState<string[]>([]);
   const [clip, setClip] = useState<string | null>(null);
@@ -250,6 +313,44 @@ export function ModelViewer({ url, format = "glb" }: { url: string; format?: str
   const [partsMode, setPartsMode] = useState(false);
   const [parts, setParts] = useState<string[]>([]);
   const [hiddenParts, setHiddenParts] = useState<Set<string>>(new Set());
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lasso, setLasso] = useState<[number, number][]>([]);
+  const [fusing, setFusing] = useState(false);
+  const pickerRef = useRef<Picker | null>(null);
+  const draggingRef = useRef(false);
+
+  const canFuse = !!onFuse && parts.length > 1;
+
+  function enterSelect() {
+    setSelectMode(true);
+    setPartsMode(true);       // selection only makes sense over per-part coloring
+  }
+  function exitSelect() {
+    setSelectMode(false);
+    setSelected(new Set());
+    setLasso([]);
+  }
+
+  function commitLasso(poly: [number, number][], additive: boolean) {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    const hit = new Set<string>();
+    for (const nm of picker.names) {
+      const p = picker.project(nm);
+      if (p && pointInPolygon(p, poly)) hit.add(nm);
+    }
+    setSelected((prev) => {
+      const next = additive ? new Set(prev) : new Set<string>();
+      hit.forEach((h) => (next.has(h) ? next.delete(h) : next.add(h)));
+      return next;
+    });
+  }
+
+  const inner = {
+    wireframe, clip, bones, inPlace, partsMode, hiddenParts, selectMode, selected, pickerRef,
+    onHasBones: setHasBones, onParts: setParts, onClips: setClips,
+  };
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
@@ -263,38 +364,81 @@ export function ModelViewer({ url, format = "glb" }: { url: string; format?: str
         <directionalLight position={[0, 4, -5]} intensity={0.6} />
         <Suspense fallback={null}>
           {format === "fbx" ? (
-            <FbxModel url={url} wireframe={wireframe} clip={clip} bones={bones} inPlace={inPlace}
-                      partsMode={partsMode} hiddenParts={hiddenParts}
-                      onHasBones={setHasBones} onParts={setParts} onClips={setClips} />
+            <FbxModel url={url} {...inner} />
           ) : (
-            <GltfModel url={url} wireframe={wireframe} clip={clip} bones={bones} inPlace={inPlace}
-                       partsMode={partsMode} hiddenParts={hiddenParts}
-                       onHasBones={setHasBones} onParts={setParts} onClips={setClips} />
+            <GltfModel url={url} {...inner} />
           )}
         </Suspense>
-        <OrbitControls makeDefault enableDamping />
+        <OrbitControls makeDefault enableDamping enabled={!selectMode} />
         <gridHelper args={[10, 20, "#3a3d45", "#2c2e34"]} position={[0, -1.05, 0]} />
       </Canvas>
+
+      {/* lasso overlay — captures drags while selecting; orbit is paused. */}
+      {selectMode && (
+        <svg
+          style={{ position: "absolute", inset: 0, zIndex: 7, cursor: "crosshair", touchAction: "none" }}
+          onPointerDown={(e) => {
+            (e.target as Element).setPointerCapture?.(e.pointerId);
+            const r = e.currentTarget.getBoundingClientRect();
+            draggingRef.current = true;
+            setLasso([[e.clientX - r.left, e.clientY - r.top]]);
+          }}
+          onPointerMove={(e) => {
+            if (!draggingRef.current) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const pt: [number, number] = [e.clientX - r.left, e.clientY - r.top];
+            setLasso((prev) => {
+              const last = prev[prev.length - 1];
+              if (last && Math.hypot(pt[0] - last[0], pt[1] - last[1]) < 4) return prev;
+              return [...prev, pt];
+            });
+          }}
+          onPointerUp={(e) => {
+            draggingRef.current = false;
+            setLasso((poly) => {
+              if (poly.length >= 3) commitLasso(poly, true);
+              return [];
+            });
+          }}
+        >
+          {lasso.length > 1 && (
+            <polygon
+              points={lasso.map((p) => p.join(",")).join(" ")}
+              fill="rgba(60,110,255,0.12)" stroke="#5a8cff" strokeWidth={1.5}
+              strokeDasharray="4 3"
+            />
+          )}
+        </svg>
+      )}
+
       {partsMode && parts.length > 1 && (
         <div
           style={{
-            position: "absolute", top: 8, right: 8, zIndex: 6, maxHeight: "85%",
+            position: "absolute", top: 8, right: 8, zIndex: 8, maxHeight: "85%",
             overflowY: "auto", background: "rgba(23,24,28,0.85)", borderRadius: 8,
             padding: "8px 10px", fontSize: 12, display: "flex", flexDirection: "column", gap: 4,
           }}
         >
           {parts.map((p, i) => (
             <label key={p} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-                                    opacity: hiddenParts.has(p) ? 0.4 : 1 }}>
+                                    opacity: hiddenParts.has(p) ? 0.4 : 1,
+                                    outline: selected.has(p) ? "1px solid #5a8cff" : "none",
+                                    borderRadius: 3, padding: "0 2px" }}>
               <input
                 type="checkbox"
-                checked={!hiddenParts.has(p)}
+                checked={selectMode ? selected.has(p) : !hiddenParts.has(p)}
                 onChange={() =>
-                  setHiddenParts((prev) => {
-                    const next = new Set(prev);
-                    next.has(p) ? next.delete(p) : next.add(p);
-                    return next;
-                  })
+                  selectMode
+                    ? setSelected((prev) => {
+                        const next = new Set(prev);
+                        next.has(p) ? next.delete(p) : next.add(p);
+                        return next;
+                      })
+                    : setHiddenParts((prev) => {
+                        const next = new Set(prev);
+                        next.has(p) ? next.delete(p) : next.add(p);
+                        return next;
+                      })
                 }
               />
               <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0,
@@ -304,13 +448,36 @@ export function ModelViewer({ url, format = "glb" }: { url: string; format?: str
           ))}
         </div>
       )}
-      <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 6 }}>
+      <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 6, zIndex: 8, flexWrap: "wrap" }}>
         <button onClick={() => setWireframe((w) => !w)}>{wireframe ? "shaded" : "wireframe"}</button>
         {hasBones && (
           <button onClick={() => setBones((b) => !b)}>{bones ? "hide bones" : "show bones"}</button>
         )}
         {parts.length > 1 && (
           <button onClick={() => setPartsMode((v) => !v)}>{partsMode ? "materials" : `parts (${parts.length})`}</button>
+        )}
+        {canFuse && !selectMode && (
+          <button onClick={enterSelect} title="lasso-select parts to merge">⧉ select parts</button>
+        )}
+        {selectMode && (
+          <>
+            <span style={{ alignSelf: "center", fontSize: 12, color: "var(--text-dim)", padding: "0 4px" }}>
+              {selected.size} selected
+            </span>
+            <button
+              disabled={selected.size < 2 || fusing}
+              onClick={async () => {
+                if (!onFuse || selected.size < 2) return;
+                setFusing(true);
+                try { await onFuse([...selected]); exitSelect(); }
+                finally { setFusing(false); }
+              }}
+            >
+              {fusing ? "fusing…" : `⛓ fuse ${selected.size}`}
+            </button>
+            {selected.size > 0 && <button onClick={() => setSelected(new Set())}>clear</button>}
+            <button onClick={exitSelect}>done</button>
+          </>
         )}
         {clips.length > 0 && (
           <>
@@ -330,6 +497,13 @@ export function ModelViewer({ url, format = "glb" }: { url: string; format?: str
           </>
         )}
       </div>
+      {selectMode && (
+        <div style={{ position: "absolute", bottom: 8, left: 8, zIndex: 8, fontSize: 11,
+                      color: "var(--text-dim)", background: "rgba(23,24,28,0.7)", padding: "3px 8px",
+                      borderRadius: 6, pointerEvents: "none" }}>
+          drag to lasso parts · tick legend to fine-tune · orbit paused while selecting
+        </div>
+      )}
       </ViewerBoundary>
     </div>
   );

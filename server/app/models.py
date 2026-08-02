@@ -38,6 +38,7 @@ class OpType(str, enum.Enum):
     retarget = "retarget"        # Tripo animations/retarget
     convert = "convert"          # Tripo models/convert
     rescale = "rescale"          # local uniform rescale to a target size (free)
+    fuse = "fuse"                # local merge of segmented parts into fewer parts (free)
     import_model = "import_model"  # external model file into the tree
 
 

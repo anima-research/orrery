@@ -445,6 +445,39 @@ async def op_rescale(eng, node: Node) -> None:
                          "scale_factor": round(factor, 6)})
 
 
+async def op_fuse(eng, node: Node) -> None:
+    """Merge selected segmented parts into fewer parts — free, instant, no provider
+    call. options.groups is a list of part-name lists; each list collapses into one
+    part (translations baked into vertices), everything else is left as-is. A single
+    list may be passed as options.parts for convenience. Use the lasso/legend in the
+    viewer to build the groups without hand-picking 60+ names."""
+    from .meshinfo import glb_fuse
+
+    parent = await eng.get_node(node.parent_id)
+    models = await eng.node_assets(parent.id, AssetKind.model)
+    glbs = [a for a in models if (a.meta.get("format") or "glb") in ("glb", "gltf")]
+    if not glbs:
+        raise RuntimeError("fuse needs a GLB/GLTF parent (segment a mesh first)")
+
+    opts = node.options
+    groups = opts.get("groups")
+    if not groups and opts.get("parts"):
+        groups = [opts["parts"]]
+    groups = [[str(p) for p in g] for g in (groups or []) if g and len(g) >= 2]
+    if not groups:
+        raise RuntimeError("fuse needs at least one group of 2+ part names "
+                           "(options.groups=[[...]] or options.parts=[...])")
+
+    src = eng.abs(glbs[0].path)
+    dst = eng.node_dir(node.project_id, node.id) / "model.glb"
+    res = glb_fuse(src, dst, groups)
+    if not res.get("fused"):
+        raise RuntimeError("no parts matched the given names — nothing fused")
+    await eng.add_asset(node, AssetKind.model, dst,
+                        {"format": "glb", "bounds": res.get("bounds"),
+                         "parts": res.get("parts"), "fused": res["fused"]})
+
+
 async def op_import_model(eng, node: Node) -> None:
     # Asset is attached by the upload router before scheduling; nothing to do.
     assets = await eng.node_assets(node.id, AssetKind.model)
@@ -467,5 +500,6 @@ OP_IMPLS = {
     OpType.retarget: _generic_postop("retarget", "animations/retarget"),
     OpType.convert: _generic_postop("convert", "models/convert"),
     OpType.rescale: op_rescale,
+    OpType.fuse: op_fuse,
     OpType.import_model: op_import_model,
 }

@@ -209,6 +209,72 @@ def test_glb_bounds_and_rescale(tmp_path):
     assert abs(glb_bounds(out)["largest"] - 2.5) < 1e-4  # re-read from disk matches
 
 
+def _parts_glb(path, translations):
+    """Minimal multi-part GLB: one unit cube per translation, each its own node /
+    mesh / material / POSITION accessor — mirrors Tripo segment output."""
+    import json as _json
+    import struct as _struct
+    from app.pipeline.meshinfo import write_glb
+    verts = [(-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
+             (-0.5, -0.5, 0.5), (0.5, -0.5, 0.5), (0.5, 0.5, 0.5), (-0.5, 0.5, 0.5)]
+    tris = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
+            (2, 3, 7), (2, 7, 6), (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7)]
+    vbytes = b"".join(_struct.pack("<fff", *v) for v in verts)
+    ibytes = b"".join(_struct.pack("<HHH", *t) for t in tris)
+    if len(ibytes) % 4:
+        ibytes += b"\x00" * (4 - len(ibytes) % 4)
+    per = vbytes + ibytes
+    nodes, meshes, mats, bvs, accs, blob = [], [], [], [], [], b""
+    for i, tr in enumerate(translations):
+        base = len(blob)
+        blob += per
+        bvs.append({"buffer": 0, "byteOffset": base, "byteLength": len(vbytes), "target": 34962})
+        bvs.append({"buffer": 0, "byteOffset": base + len(vbytes), "byteLength": len(tris) * 6, "target": 34963})
+        accs.append({"bufferView": len(bvs) - 2, "componentType": 5126, "count": 8, "type": "VEC3",
+                     "min": [-0.5, -0.5, -0.5], "max": [0.5, 0.5, 0.5]})
+        accs.append({"bufferView": len(bvs) - 1, "componentType": 5123, "count": len(tris) * 3, "type": "SCALAR"})
+        meshes.append({"name": f"tripo_mesh_{i}",
+                       "primitives": [{"attributes": {"POSITION": len(accs) - 2}, "indices": len(accs) - 1, "material": i}]})
+        mats.append({"name": f"mat_{i}", "pbrMetallicRoughness": {"baseColorFactor": [i / 10, 0.5, 0.7, 1.0]}})
+        nodes.append({"mesh": i, "name": f"tripo_part_{i}", "translation": list(tr)})
+    gltf = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}],
+            "nodes": nodes, "meshes": meshes, "materials": mats,
+            "buffers": [{"byteLength": len(blob)}], "bufferViews": bvs, "accessors": accs}
+    write_glb(path, gltf, blob)
+    return path
+
+
+def test_glb_fuse_preserves_bounds_and_materials(tmp_path):
+    from app.pipeline.meshinfo import glb_fuse, compute_bounds, read_glb
+    src = _parts_glb(tmp_path / "seg.glb", [(0, 0, 0), (3, 0, 0), (0, 4, 0)])
+    g0, _ = read_glb(src)
+    before = compute_bounds(g0)
+    assert before["size"] == [4.0, 5.0, 1.0]  # spans the 3 translated cubes (±0.5 each)
+
+    out = tmp_path / "fused.glb"
+    res = glb_fuse(src, out, [["tripo_part_0", "tripo_part_2"]])
+    assert res["fused"] == 1
+    # 3 parts -> 2 (part_0+part_2 merged; part_1 untouched)
+    assert sorted(res["parts"]) == ["tripo_part_1", "tripo_part_fused_0"]
+    # bounds unchanged: translation baked into vertices, not lost
+    assert res["bounds"]["size"] == before["size"]
+    assert abs(os.path.getsize(out) - os.path.getsize(src)) < 4096  # no buffer growth
+
+    g1, _ = read_glb(out)
+    fnode = next(n for n in g1["nodes"] if n.get("name") == "tripo_part_fused_0")
+    assert "translation" not in fnode                       # baked away
+    prims = g1["meshes"][fnode["mesh"]]["primitives"]
+    assert len(prims) == 2                                  # both parts' geometry
+    assert {p["material"] for p in prims} == {0, 2}         # both materials preserved
+
+
+def test_glb_fuse_rejects_singletons(tmp_path):
+    from app.pipeline.meshinfo import glb_fuse
+    src = _parts_glb(tmp_path / "seg.glb", [(0, 0, 0), (3, 0, 0)])
+    res = glb_fuse(src, tmp_path / "o.glb", [["tripo_part_0"]])  # group of 1 = no-op
+    assert res["fused"] == 0
+
+
 def test_rescale_target_size_math(tmp_path):
     from app.pipeline.meshinfo import glb_bounds, wrap_scale
     from app.clients.fixtures import cube_glb
