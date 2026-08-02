@@ -210,6 +210,8 @@ async def send_to_eidoverse(node_id: str, body: EidoverseIn,
             project = await engine.get_project(node.project_id)
             name = body.name or f"{project.name} {node.id[:6]}"
             result = await eidoverse.send_object(path, name=name, by=ident.name)
+    except eidoverse.EidoverseTooLarge as e:
+        raise HTTPException(413, str(e))          # local pre-flight, not a far-end failure
     except eidoverse.EidoverseError as e:
         raise HTTPException(502, str(e))
     note = (node.note + " | " if node.note else "") + f"eidoverse: {result.get('path')}"

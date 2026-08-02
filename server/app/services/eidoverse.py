@@ -20,6 +20,10 @@ class EidoverseError(RuntimeError):
     pass
 
 
+class EidoverseTooLarge(EidoverseError):
+    """Pre-flight size failure — a local client error (413), not a bad gateway."""
+
+
 def _max_bytes() -> int:
     return get_settings().eidoverse_max_mb * 1_000_000
 
@@ -36,9 +40,14 @@ def _upload_params(extra: dict | None = None, by: str | None = None) -> dict:
 
 def _check_glb(path: Path) -> None:
     cap = _max_bytes()
-    if path.stat().st_size > cap:
-        raise EidoverseError(f"{path.name} is {path.stat().st_size // 1_000_000}MB — eidoverse caps uploads at "
-                             f"{cap // 1_000_000}MB (retopo or convert with smaller texture_size first)")
+    size = path.stat().st_size
+    if size > cap:
+        # For Tripo meshes the weight is geometry (v3.1 runs to ~1.5M triangles),
+        # not textures — so retopo/face_limit is the lever, NOT texture_size.
+        raise EidoverseTooLarge(
+            f"{path.name} is {size / 1_000_000:.1f}MB — the world caps uploads at "
+            f"{cap // 1_000_000}MB. This is triangle count, not textures: branch a retopo "
+            f"(mesh/decimate) and send that, or regenerate mesh_gen with a face_limit.")
     with open(path, "rb") as f:
         if f.read(4) != b"glTF":
             raise EidoverseError(f"{path.name} is not a GLB container — eidoverse accepts .glb/.vrm only")

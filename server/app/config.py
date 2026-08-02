@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # Eidoverse-worlds integration (raw-GLB POST /upload; glb2vrm for avatars)
     eidoverse_url: str = "http://127.0.0.1:8940"
     eidoverse_token: str = ""        # door key or agent bearer (?token=) if the server requires one
-    eidoverse_max_mb: int = 80       # server-side upload cap to pre-check against
+    eidoverse_max_mb: int = 20       # must match the world's UPLOAD_CAP_MB (default 20)
     eidoverse_repo: Path = Path.home() / "connectome-local" / "eidoverse-worlds"
     bun_bin: str = str(Path.home() / ".bun" / "bin" / "bun")
 
