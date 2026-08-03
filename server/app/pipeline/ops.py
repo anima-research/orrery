@@ -25,17 +25,21 @@ async def _first_asset(eng, node_id: str, kind: AssetKind) -> Path | None:
     return eng.abs(assets[0].path) if assets else None
 
 
-async def _model_input(eng, parent: Node) -> tuple[dict | str, bool]:
+async def _model_input(eng, parent: Node) -> tuple[str, bool]:
     """Resolve the Tripo `input` for a post-op from the parent node.
     Returns (input_value, used_task_id). Prefers chaining the provider task id;
-    falls back to uploading our archived model file."""
+    falls back to uploading our archived model file.
+    NB: post-processing `input` is a BARE STRING (task_id | file_token | URL).
+    The object form {"file_token": ...} belongs to the v2-style generation
+    endpoints only; animations/* reject it with 1004 "input is required"
+    (verified live 2026-08-03 — this is what broke rigging re-imported models)."""
     if parent.provider == "tripo" and parent.provider_task_id:
         return parent.provider_task_id, True
     model_path = await _first_asset(eng, parent.id, AssetKind.model)
     if not model_path:
         raise RuntimeError(f"parent node {parent.id} has no model output to operate on")
     token = await get_tripo().upload_file(model_path)
-    return {"file_token": token}, False
+    return token, False
 
 
 async def _run_tripo(eng, node: Node, endpoint: str, payload: dict):
@@ -71,7 +75,7 @@ async def _run_tripo_postop(eng, node: Node, endpoint: str, payload_base: dict):
         if not model_path:
             raise
         token = await get_tripo().upload_file(model_path)
-        return await _run_tripo(eng, node, endpoint, {**payload_base, "input": {"file_token": token}})
+        return await _run_tripo(eng, node, endpoint, {**payload_base, "input": token})
 
 
 async def _archive_model_outputs(eng, node: Node, result, model_ext: str = "glb"):
