@@ -281,6 +281,65 @@ def glb_fuse(src: Path, dst: Path, groups: list[list[str]]) -> dict:
     return {"parts": parts, "fused": fused, "bounds": compute_bounds(gltf)}
 
 
+def glb_drop(src: Path, dst: Path, parts: list[str]) -> dict:
+    """Delete named parts from the mesh — the counterpart to glb_fuse for the
+    'floating junk piece after segmentation' case. Each named node (or the node
+    carrying a mesh of that name) is detached from wherever it hangs, along with
+    its whole subtree. Bytes stay in the buffer (dropped geometry becomes
+    unreferenced padding — cheap, and the store diet reclaims it later); what
+    matters is the scene graph no longer reaches it.
+    Returns {parts, dropped, bounds}."""
+    gltf, bin_chunk = read_glb(src)
+    nodes = gltf["nodes"]
+    meshes = gltf.get("meshes", [])
+    scene = gltf["scenes"][gltf.get("scene", 0)]
+
+    name2node: dict[str, int] = {}
+    for i, n in enumerate(nodes):
+        if n.get("name"):
+            name2node.setdefault(n["name"], i)
+        if n.get("mesh") is not None:
+            mn = meshes[n["mesh"]].get("name")
+            if mn:
+                name2node.setdefault(mn, i)
+
+    parent_of: dict[int, int] = {}
+    for pi, n in enumerate(nodes):
+        for c in n.get("children", []):
+            parent_of[c] = pi
+
+    dropped = 0
+    for nm in parts:
+        idx = name2node.get(nm)
+        if idx is None:
+            continue
+        pi = parent_of.get(idx)
+        if pi is not None:
+            kids = nodes[pi].get("children")
+            if kids and idx in kids:
+                kids.remove(idx)
+                dropped += 1
+        elif idx in scene.get("nodes", []):
+            scene["nodes"].remove(idx)
+            dropped += 1
+
+    write_glb(dst, gltf, bin_chunk)
+    # remaining part names — same scene-graph walk as glb_fuse
+    reachable: list[int] = []
+    seen: set[int] = set()
+    stack = list(scene.get("nodes", []))
+    while stack:
+        i = stack.pop()
+        if i in seen:
+            continue
+        seen.add(i)
+        reachable.append(i)
+        stack.extend(nodes[i].get("children", []))
+    remaining = [nodes[i].get("name") for i in reachable
+                 if nodes[i].get("mesh") is not None and nodes[i].get("name")]
+    return {"parts": remaining, "dropped": dropped, "bounds": compute_bounds(gltf)}
+
+
 def wrap_scale(src: Path, dst: Path, factor: float) -> dict:
     """Bake a uniform scale by wrapping the scene under one scale node.
     Skin-safe (bones scale with the mesh). Returns the new bounds."""

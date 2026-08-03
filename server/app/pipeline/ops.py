@@ -467,10 +467,18 @@ async def op_fuse(eng, node: Node) -> None:
     groups = opts.get("groups")
     if not groups and opts.get("parts"):
         groups = [opts["parts"]]
+    # Forgive the obvious flat shape: groups=["a","b","c"] means ONE group.
+    # (People reasonably type the list of names and only learn about the
+    # list-of-lists nesting from the error — accept both.)
+    if groups and all(isinstance(g, str) for g in groups):
+        groups = [groups]
     groups = [[str(p) for p in g] for g in (groups or []) if g and len(g) >= 2]
     if not groups:
-        raise RuntimeError("fuse needs at least one group of 2+ part names "
-                           "(options.groups=[[...]] or options.parts=[...])")
+        raise RuntimeError(
+            'fuse needs part names to merge. Easiest: options.parts=["tripo_part_0","tripo_part_1"] '
+            "merges those into one part. For several independent merges use "
+            'options.groups=[["a","b"],["c","d"]] — each inner list becomes one part. '
+            "Part names are in the model asset's meta.parts (or the viewer's parts legend).")
 
     src = eng.abs(glbs[0].path)
     dst = eng.node_dir(node.project_id, node.id) / "model.glb"
@@ -480,6 +488,36 @@ async def op_fuse(eng, node: Node) -> None:
     await eng.add_asset(node, AssetKind.model, dst,
                         {"format": "glb", "bounds": res.get("bounds"),
                          "parts": res.get("parts"), "fused": res["fused"]})
+
+
+async def op_drop(eng, node: Node) -> None:
+    """Delete named parts from a segmented mesh — free, instant, no provider
+    call. The counterpart to fuse: segmentation often reveals a floating scrap
+    that should simply not exist (the case people were solving with a
+    download → Blender → re-import detour). options.parts lists the part names
+    to remove; everything else passes through byte-identical."""
+    from .meshinfo import glb_drop
+
+    parent = await eng.get_node(node.parent_id)
+    models = await eng.node_assets(parent.id, AssetKind.model)
+    glbs = [a for a in models if (a.meta.get("format") or "glb") in ("glb", "gltf")]
+    if not glbs:
+        raise RuntimeError("drop needs a GLB/GLTF parent (segment a mesh first)")
+
+    parts = [str(p) for p in (node.options.get("parts") or []) if p]
+    if not parts:
+        raise RuntimeError("drop needs options.parts — the part names to delete")
+
+    src = eng.abs(glbs[0].path)
+    dst = eng.node_dir(node.project_id, node.id) / "model.glb"
+    res = glb_drop(src, dst, parts)
+    if not res.get("dropped"):
+        raise RuntimeError("no parts matched the given names — nothing deleted")
+    if not res.get("parts"):
+        raise RuntimeError("refusing: dropping these parts would leave an empty mesh")
+    await eng.add_asset(node, AssetKind.model, dst,
+                        {"format": "glb", "bounds": res.get("bounds"),
+                         "parts": res.get("parts"), "dropped": res["dropped"]})
 
 
 async def op_import_model(eng, node: Node) -> None:
@@ -505,5 +543,6 @@ OP_IMPLS = {
     OpType.convert: _generic_postop("convert", "models/convert"),
     OpType.rescale: op_rescale,
     OpType.fuse: op_fuse,
+    OpType.drop: op_drop,
     OpType.import_model: op_import_model,
 }

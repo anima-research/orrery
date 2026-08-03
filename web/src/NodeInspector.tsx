@@ -13,9 +13,10 @@ const CHILD_OPS: Record<string, string[]> = {
   mesh_gen: ["texture", "retopo", "segment", "rig", "convert", "rescale"],
   texture: ["retopo", "segment", "rig", "convert", "rescale"],
   retopo: ["texture", "rig", "convert", "rescale"],
-  segment: ["complete", "fuse"],
-  complete: ["texture", "rig", "convert", "rescale", "fuse"],
-  fuse: ["fuse", "complete", "texture", "retopo", "rig", "convert", "rescale"],
+  segment: ["complete", "fuse", "drop"],
+  complete: ["texture", "rig", "convert", "rescale", "fuse", "drop"],
+  fuse: ["fuse", "drop", "complete", "texture", "retopo", "rig", "convert", "rescale"],
+  drop: ["fuse", "drop", "complete", "texture", "retopo", "rig", "convert", "rescale"],
   rig: ["retarget", "convert"],
   retarget: ["convert"],
   convert: [],
@@ -23,7 +24,7 @@ const CHILD_OPS: Record<string, string[]> = {
   import_model: ["texture", "retopo", "segment", "rig", "convert", "image_to_multiview", "rescale"],
 };
 
-const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment", "fuse"]);
+const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment", "fuse", "drop"]);
 
 const VIEWABLE = new Set(["glb", "gltf", "fbx"]);
 
@@ -51,10 +52,10 @@ function ModelPane({
       </div>
     );
   }
-  const onFuse =
+  const branchOp =
     node && onRefresh && onSelect && (fmt === "glb" || fmt === "gltf")
-      ? async (parts: string[]) => {
-          const nodes = await api.createNodes(node.project_id, "fuse", node.id, { parts });
+      ? (op: string) => async (parts: string[]) => {
+          const nodes = await api.createNodes(node.project_id, op, node.id, { parts });
           onRefresh();
           onSelect(nodes[0].id);
         }
@@ -63,7 +64,8 @@ function ModelPane({
     <ModelViewer
       url={`/api/assets/${asset.id}/file`}
       format={fmt}
-      onFuse={onFuse}
+      onFuse={branchOp?.("fuse")}
+      onDrop={branchOp?.("drop")}
       partNames={Array.isArray(asset.meta.parts) ? asset.meta.parts : undefined}
     />
   );
@@ -460,7 +462,11 @@ export function NodeInspector({
                 >
                   🌍 → Eidoverse
                 </button>
-                {["rig", "retarget"].includes(node.op_type) && (
+                {/* rig/retarget produce rigged models; import_model and convert may
+                    carry one rigged elsewhere (e.g. auto-rigged in Blender and
+                    re-imported) — glb2vrm rejects unrigged models loudly, so
+                    offering the button liberally costs nothing. */}
+                {["rig", "retarget", "import_model", "convert"].includes(node.op_type) && (
                   <button
                     title="convert to VRM 1.0 (glb2vrm) and upload as a wearable avatar"
                     onClick={async () => {

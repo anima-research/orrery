@@ -315,10 +315,12 @@ function pointInPolygon(pt: [number, number], poly: [number, number][]): boolean
 }
 
 /** onFuse: merge the given part names into one — creates a fuse child node.
+ * onDrop: delete the given part names — creates a drop child node.
  * When present (and the model has >1 part) the viewer offers lasso part-selection. */
-export function ModelViewer({ url, format = "glb", onFuse, partNames }: {
+export function ModelViewer({ url, format = "glb", onFuse, onDrop, partNames }: {
   url: string; format?: string;
   onFuse?: (parts: string[]) => Promise<void>;
+  onDrop?: (parts: string[]) => Promise<void>;
   partNames?: string[];
 }) {
   const [wireframe, setWireframe] = useState(false);
@@ -337,7 +339,7 @@ export function ModelViewer({ url, format = "glb", onFuse, partNames }: {
   const pickerRef = useRef<Picker | null>(null);
   const draggingRef = useRef(false);
 
-  const canFuse = !!onFuse && parts.length > 1;
+  const canFuse = (!!onFuse || !!onDrop) && parts.length > 1;
 
   function enterSelect() {
     setSelectMode(true);
@@ -476,24 +478,40 @@ export function ModelViewer({ url, format = "glb", onFuse, partNames }: {
           <button onClick={() => setPartsMode((v) => !v)}>{partsMode ? "materials" : `parts (${parts.length})`}</button>
         )}
         {canFuse && !selectMode && (
-          <button onClick={enterSelect} title="lasso-select parts to merge">⧉ select parts</button>
+          <button onClick={enterSelect} title="lasso-select parts to merge or delete">⧉ select parts</button>
         )}
         {selectMode && (
           <>
             <span style={{ alignSelf: "center", fontSize: 12, color: "var(--text-dim)", padding: "0 4px" }}>
               {selected.size} selected
             </span>
-            <button
-              disabled={selected.size < 2 || fusing}
-              onClick={async () => {
-                if (!onFuse || selected.size < 2) return;
-                setFusing(true);
-                try { await onFuse([...selected]); exitSelect(); }
-                finally { setFusing(false); }
-              }}
-            >
-              {fusing ? "fusing…" : `⛓ fuse ${selected.size}`}
-            </button>
+            {onFuse && (
+              <button
+                disabled={selected.size < 2 || fusing}
+                onClick={async () => {
+                  if (!onFuse || selected.size < 2) return;
+                  setFusing(true);
+                  try { await onFuse([...selected]); exitSelect(); }
+                  finally { setFusing(false); }
+                }}
+              >
+                {fusing ? "fusing…" : `⛓ fuse ${selected.size}`}
+              </button>
+            )}
+            {onDrop && (
+              <button
+                disabled={selected.size < 1 || selected.size >= parts.length || fusing}
+                title={selected.size >= parts.length ? "can't delete every part" : "delete the selected parts (branches a drop node — the original stays)"}
+                onClick={async () => {
+                  if (!onDrop || selected.size < 1) return;
+                  setFusing(true);
+                  try { await onDrop([...selected]); exitSelect(); }
+                  finally { setFusing(false); }
+                }}
+              >
+                {fusing ? "working…" : `✂ delete ${selected.size}`}
+              </button>
+            )}
             {selected.size > 0 && <button onClick={() => setSelected(new Set())}>clear</button>}
             <button onClick={exitSelect}>done</button>
           </>

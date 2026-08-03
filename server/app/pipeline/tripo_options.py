@@ -243,17 +243,31 @@ OP_SPECS: dict[str, dict[str, Any]] = {
     "fuse": {
         "provider": "local",
         "fields": {
-            "groups": {"type": "json", "default": None,
-                       "desc": "List of part-name lists; each inner list of 2+ names "
-                               "(e.g. [\"tripo_part_3\",\"tripo_part_7\"]) collapses into one "
-                               "part. Parts not listed are left untouched."},
             "parts": {"type": "json", "default": None,
-                      "desc": "Shorthand for a single group — merge just these names into one part."},
+                      "desc": "Part names to merge into ONE part, e.g. "
+                              "[\"tripo_part_0\",\"tripo_part_1\"]. This is the common case — "
+                              "start here. Names come from the model's meta.parts / viewer legend."},
+            "groups": {"type": "json", "default": None,
+                       "desc": "Several independent merges at once: a list of part-name lists, "
+                               "e.g. [[\"a\",\"b\"],[\"c\",\"d\"]] — each inner list collapses "
+                               "into one part. A flat list here is treated as a single group. "
+                               "Parts not listed are left untouched."},
         },
         "desc": "Local part merge — free, instant, no API call. Baked-in-place, so geometry, "
                 "per-part materials and absolute size are preserved; the buffer does not grow. "
                 "Cuts an over-segmented mesh (60+ parts) down to a handful. In the viewer, "
                 "lasso-select parts or tick the legend to build a group, then fuse.",
+    },
+    "drop": {
+        "provider": "local",
+        "fields": {
+            "parts": {"type": "json", "default": None,
+                      "desc": "Part names to DELETE from the mesh, e.g. [\"tripo_part_5\"]. "
+                              "Names come from the model's meta.parts / viewer legend."},
+        },
+        "desc": "Local part delete — free, instant, no API call. Removes floating scraps and "
+                "unwanted pieces a segmentation revealed; everything else passes through "
+                "untouched. In the viewer, lasso/tick parts then hit delete.",
     },
     "import_model": {
         "provider": "local",
