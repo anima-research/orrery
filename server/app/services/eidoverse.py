@@ -108,8 +108,12 @@ async def slim_vrm_if_needed(vrm_path: Path) -> Path:
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
     stdout, _ = await proc.communicate()
-    if proc.returncode != 0 or not slim.exists():
+    if proc.returncode != 0:
         raise EidoverseError(f"slim-vrm failed: {stdout.decode()[-300:]}")
+    if not slim.exists():
+        # Older slim-vrm exits 0 without writing --out when it finds nothing
+        # to resize ("nothing to slim"). That's a pass-through, not a failure.
+        return vrm_path
     return slim
 
 
