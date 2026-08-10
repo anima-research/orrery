@@ -187,14 +187,27 @@ class EidoverseIn(BaseModel):
     as_avatar: bool = False
     name: Optional[str] = None       # avatar name (sanitized server-side by eidoverse)
     height: Optional[float] = None   # avatar height in meters (glb2vrm --height)
+    target: str = "eidoverse"        # push target: "eidoverse" (prod) | "eidoverse2" (staging)
+
+
+@router.get("/eidoverse/targets")
+async def eidoverse_targets(ident: Identity = Depends(current_identity)) -> dict:
+    """Configured world push targets — drives the UI target picker (a lone
+    'eidoverse' renders no picker at all)."""
+    from ..services import eidoverse
+    return {"targets": list(eidoverse.targets().keys())}
 
 
 @router.post("/nodes/{node_id}/send-to-eidoverse")
 async def send_to_eidoverse(node_id: str, body: EidoverseIn,
                             ident: Identity = Depends(current_identity)) -> dict:
     """Push this node's GLB into eidoverse-worlds — as a world object, or
-    (for rigged characters) converted to a VRM 1.0 avatar."""
+    (for rigged characters) converted to a VRM 1.0 avatar. `target` picks the
+    world: "eidoverse" (default, prod) or "eidoverse2" (staging, when configured)."""
     from ..services import eidoverse
+    if body.target not in eidoverse.targets():
+        raise HTTPException(400, f"unknown target '{body.target}' — configured: "
+                                 f"{', '.join(eidoverse.targets())}")
     node = await node_access(node_id, ident, write=True)
     models = await engine.node_assets(node_id, AssetKind.model)
     glbs = [a for a in models if (a.meta.get("format") or "glb") in ("glb", "gltf", "vrm")]
@@ -205,18 +218,20 @@ async def send_to_eidoverse(node_id: str, body: EidoverseIn,
     try:
         if body.as_avatar:
             name = body.name or f"orrery-{node.project_id[:6]}-{node.id[:6]}"
-            result = await eidoverse.send_avatar(path, name, body.height, by=ident.name)
+            result = await eidoverse.send_avatar(path, name, body.height, by=ident.name,
+                                                 target=body.target)
         else:
             project = await engine.get_project(node.project_id)
             name = body.name or f"{project.name} {node.id[:6]}"
-            result = await eidoverse.send_object(path, name=name, by=ident.name)
+            result = await eidoverse.send_object(path, name=name, by=ident.name,
+                                                 target=body.target)
     except eidoverse.EidoverseTooLarge as e:
         raise HTTPException(413, str(e))          # local pre-flight, not a far-end failure
     except eidoverse.EidoverseError as e:
         raise HTTPException(502, str(e))
-    note = (node.note + " | " if node.note else "") + f"eidoverse: {result.get('path')}"
+    note = (node.note + " | " if node.note else "") + f"{body.target}: {result.get('path')}"
     await engine.update_node(node_id, note=note[:500])
-    return {"ok": True, **result, "as_avatar": body.as_avatar}
+    return {"ok": True, **result, "as_avatar": body.as_avatar, "target": body.target}
 
 
 @router.get("/ops")

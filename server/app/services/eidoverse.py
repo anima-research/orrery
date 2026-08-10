@@ -28,11 +28,30 @@ def _max_bytes() -> int:
     return get_settings().eidoverse_max_mb * 1_000_000
 
 
-def _upload_params(extra: dict | None = None, by: str | None = None) -> dict:
+def targets() -> dict[str, dict]:
+    """Configured push targets, name -> {url, token}. 'eidoverse' (prod) is
+    always present; 'eidoverse2' (staging) appears once EIDOVERSE2_URL is set.
+    Tokens are per-target — staging mints its own JOIN_TOKEN, prod's is refused
+    there (deliberate isolation)."""
     s = get_settings()
+    t = {"eidoverse": {"url": s.eidoverse_url, "token": s.eidoverse_token}}
+    if s.eidoverse2_url:
+        t["eidoverse2"] = {"url": s.eidoverse2_url, "token": s.eidoverse2_token}
+    return t
+
+
+def _resolve(target: str) -> dict:
+    t = targets().get(target)
+    if not t:
+        raise EidoverseError(
+            f"unknown eidoverse target '{target}' — configured targets: {', '.join(targets())}")
+    return t
+
+
+def _upload_params(target: dict, extra: dict | None = None, by: str | None = None) -> dict:
     params = dict(extra or {})
-    if s.eidoverse_token:
-        params["token"] = s.eidoverse_token
+    if target["token"]:
+        params["token"] = target["token"]
     if by:
         params["by"] = by[:64]
     return params
@@ -54,24 +73,25 @@ def _check_glb(path: Path) -> None:
 
 
 async def send_object(glb_path: Path, name: str | None = None,
-                      by: str | None = None) -> dict:
+                      by: str | None = None, target: str = "eidoverse") -> dict:
     """Upload a GLB as a world object; returns {"path": "store/<hash>.glb"}.
     `name` lands in the store manifest — without it the content-addressed
     catalog can only ever call this object a hash."""
     _check_glb(glb_path)
-    s = get_settings()
+    t = _resolve(target)
     extra = {"name": name[:64]} if name else None
     try:
         async with httpx.AsyncClient(timeout=300) as client:
-            r = await client.post(f"{s.eidoverse_url}/upload",
-                                  params=_upload_params(extra, by=by),
+            r = await client.post(f"{t['url']}/upload",
+                                  params=_upload_params(t, extra, by=by),
                                   content=glb_path.read_bytes())
     except httpx.HTTPError as e:
-        raise EidoverseError(f"cannot reach eidoverse at {s.eidoverse_url}: {e.__class__.__name__}: {e}")
+        raise EidoverseError(f"cannot reach {target} at {t['url']}: {e.__class__.__name__}: {e}")
     if r.status_code == 401:
-        raise EidoverseError("eidoverse requires an upload token — set EIDOVERSE_TOKEN")
+        raise EidoverseError(f"{target} requires an upload token — set "
+                             f"{'EIDOVERSE2_TOKEN' if target == 'eidoverse2' else 'EIDOVERSE_TOKEN'}")
     if r.status_code >= 400:
-        raise EidoverseError(f"eidoverse upload failed: {r.status_code} {r.text[:200]}")
+        raise EidoverseError(f"{target} upload failed: {r.status_code} {r.text[:200]}")
     return r.json()
 
 
@@ -118,23 +138,24 @@ async def slim_vrm_if_needed(vrm_path: Path) -> Path:
 
 
 async def send_avatar(glb_path: Path, name: str, height: float | None = None,
-                      by: str | None = None) -> dict:
+                      by: str | None = None, target: str = "eidoverse") -> dict:
     """Convert rigged GLB -> VRM and upload as a named avatar."""
     vrm = await glb_to_vrm(glb_path, name, height)
     vrm = await slim_vrm_if_needed(vrm)
     _check_glb(vrm)
-    s = get_settings()
+    t = _resolve(target)
     try:
         async with httpx.AsyncClient(timeout=300) as client:
             r = await client.post(
-                f"{s.eidoverse_url}/upload",
-                params=_upload_params({"as": "avatar", "name": name}, by=by),
+                f"{t['url']}/upload",
+                params=_upload_params(t, {"as": "avatar", "name": name}, by=by),
                 content=vrm.read_bytes(),
             )
     except httpx.HTTPError as e:
-        raise EidoverseError(f"cannot reach eidoverse at {s.eidoverse_url}: {e.__class__.__name__}: {e}")
+        raise EidoverseError(f"cannot reach {target} at {t['url']}: {e.__class__.__name__}: {e}")
     if r.status_code == 401:
-        raise EidoverseError("eidoverse requires an upload token — set EIDOVERSE_TOKEN")
+        raise EidoverseError(f"{target} requires an upload token — set "
+                             f"{'EIDOVERSE2_TOKEN' if target == 'eidoverse2' else 'EIDOVERSE_TOKEN'}")
     if r.status_code >= 400:
-        raise EidoverseError(f"eidoverse avatar upload failed: {r.status_code} {r.text[:200]}")
+        raise EidoverseError(f"{target} avatar upload failed: {r.status_code} {r.text[:200]}")
     return r.json()

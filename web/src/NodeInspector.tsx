@@ -274,12 +274,20 @@ export function NodeInspector({
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [shots, setShots] = useState<string[]>([]);
   const [shotsBusy, setShotsBusy] = useState(false);
+  // world push targets — ["eidoverse"] alone renders no picker; "eidoverse2"
+  // (staging) appears when the server has EIDOVERSE2_URL configured
+  const [eidoTargets, setEidoTargets] = useState<string[]>(["eidoverse"]);
+  const [eidoTarget, setEidoTarget] = useState("eidoverse");
   const refInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setNote(node.note);
     setShots([]);
   }, [node.id]);
+
+  useEffect(() => {
+    api.eidoverseTargets().then((r) => setEidoTargets(r.targets)).catch(() => {});
+  }, []);
 
   const modelAsset = node.assets.find((a) => a.kind === "model");
   const compareModel = compare?.assets.find((a) => a.kind === "model");
@@ -447,20 +455,20 @@ export function NodeInspector({
             {(modelAsset.meta.format ?? "glb") === "glb" && (
               <>
                 <button
-                  title="upload this GLB into eidoverse-worlds as a world object"
+                  title={`upload this GLB into ${eidoTarget} as a world object`}
                   onClick={async () => {
-                    const name = window.prompt("Object name for the eidoverse catalog\n(empty = project name):", "");
+                    const name = window.prompt(`Object name for the ${eidoTarget} catalog\n(empty = project name):`, "");
                     if (name === null) return; // cancelled
                     try {
-                      const r = await api.sendToEidoverse(node.id, false, name || undefined);
-                      alert(`sent to eidoverse: ${r.path}\n(spawn it in-world via the asset verb)`);
+                      const r = await api.sendToEidoverse(node.id, false, name || undefined, undefined, eidoTarget);
+                      alert(`sent to ${eidoTarget}: ${r.path}\n(spawn it in-world via the asset verb)`);
                       onRefresh();
                     } catch (e: any) {
-                      alert(`eidoverse: ${e.message}`);
+                      alert(`${eidoTarget}: ${e.message}`);
                     }
                   }}
                 >
-                  🌍 → Eidoverse
+                  🌍 → {eidoTarget === "eidoverse" ? "Eidoverse" : "Eidoverse² (staging)"}
                 </button>
                 {/* rig/retarget produce rigged models; import_model and convert may
                     carry one rigged elsewhere (e.g. auto-rigged in Blender and
@@ -468,22 +476,33 @@ export function NodeInspector({
                     offering the button liberally costs nothing. */}
                 {["rig", "retarget", "import_model", "convert"].includes(node.op_type) && (
                   <button
-                    title="convert to VRM 1.0 (glb2vrm) and upload as a wearable avatar"
+                    title={`convert to VRM 1.0 (glb2vrm) and upload as a wearable avatar on ${eidoTarget}`}
                     onClick={async () => {
                       const name = window.prompt("Avatar name:", `art_${node.id.slice(0, 6)}`);
                       if (!name) return;
                       const h = window.prompt("Height in meters (blank = default):", "");
                       try {
-                        const r = await api.sendToEidoverse(node.id, true, name, h ? parseFloat(h) : undefined);
-                        alert(`avatar uploaded: ${r.name}\nwear it with ?avatar=${r.name}`);
+                        const r = await api.sendToEidoverse(node.id, true, name, h ? parseFloat(h) : undefined, eidoTarget);
+                        alert(`avatar uploaded to ${eidoTarget}: ${r.name}\nwear it with ?avatar=${r.name}`);
                         onRefresh();
                       } catch (e: any) {
-                        alert(`eidoverse: ${e.message}`);
+                        alert(`${eidoTarget}: ${e.message}`);
                       }
                     }}
                   >
-                    🧍 → Eidoverse avatar
+                    🧍 → {eidoTarget === "eidoverse" ? "Eidoverse" : "Eidoverse²"} avatar
                   </button>
+                )}
+                {eidoTargets.length > 1 && (
+                  <select
+                    title="which world the → buttons push to"
+                    value={eidoTarget}
+                    onChange={(e) => setEidoTarget(e.target.value)}
+                  >
+                    {eidoTargets.map((t) => (
+                      <option key={t} value={t}>{t === "eidoverse" ? "→ prod" : "→ staging"}</option>
+                    ))}
+                  </select>
                 )}
               </>
             )}

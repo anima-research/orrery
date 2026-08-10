@@ -97,12 +97,17 @@ export const api = {
     fetch(`/api/nodes/${nodeId}/duplicate`, { method: "POST" }).then((r) => j<TreeNode>(r)),
 
   // name: avatar roster name, or object catalog label (server defaults to project name)
-  sendToEidoverse: (nodeId: string, asAvatar: boolean, name?: string, height?: number) =>
+  // target: "eidoverse" (prod, default) | "eidoverse2" (staging) — see eidoverseTargets()
+  sendToEidoverse: (nodeId: string, asAvatar: boolean, name?: string, height?: number,
+                    target?: string) =>
     fetch(`/api/nodes/${nodeId}/send-to-eidoverse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ as_avatar: asAvatar, name, height }),
+      body: JSON.stringify({ as_avatar: asAvatar, name, height, target }),
     }).then((r) => j<any>(r)),
+
+  eidoverseTargets: () =>
+    fetch(`/api/eidoverse/targets`).then((r) => j<{ targets: string[] }>(r)),
 
   screenshots: (nodeId: string, count = 8, size = 1024) =>
     fetch(`/api/nodes/${nodeId}/screenshots?count=${count}&size=${size}`).then((r) => j<any>(r)),
