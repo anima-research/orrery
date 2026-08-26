@@ -3,7 +3,10 @@ API payload validation AND the UI's option forms (served at /api/ops).
 
 Each field: {type, enum?, default?, min?, max?, desc, requires_model_gte?}
 Model ordering for gates: v2.5-20250123 < v3.0-20250812 < v3.1-20260211.
-P1-20260311 is a separate low-poly family with its own allowlist.
+P1-20260311 / P2-20260801 are a separate low-poly family with their own allowlists
+(P2 adds native quad + bigger budgets: 48-50000 tri / 48-25000 quad, API-verified
+2026-08-25 via validator probes; unsupported params are silently ignored by Tripo,
+quad is the one param it hard-rejects on non-P2 P-series).
 """
 from __future__ import annotations
 
@@ -14,7 +17,8 @@ from .prompts import CHARACTER_SUFFIX, GRID_CONTRACT
 
 _MODEL_NOTES = "; ".join(f"{k}: {v['notes']}" for k, v in IMAGE_MODELS.items())
 
-MESH_MODELS = ["v3.1-20260211", "v3.0-20250812", "v2.5-20250123", "P1-20260311"]
+MESH_MODELS = ["v3.1-20260211", "v3.0-20250812", "v2.5-20250123", "P2-20260801",
+               "P1-20260311"]
 _H_ORDER = {"v2.5-20250123": 0, "v3.0-20250812": 1, "v3.1-20260211": 2}
 
 # Params only valid on H-series >= v3.0
@@ -24,19 +28,24 @@ V30_PLUS_PARAMS = {"texture_quality", "geometry_quality", "auto_size", "quad",
 P1_ALLOWED = {"texture", "pbr", "texture_quality", "auto_size", "compress",
               "face_limit", "model_seed", "texture_seed", "orientation",
               "texture_alignment", "export_uv"}
+# P2 (preview, 2026-08): everything P1 takes plus native quad topology.
+P2_ALLOWED = P1_ALLOWED | {"quad"}
 
 MESH_GEN_FIELDS: dict[str, dict[str, Any]] = {
     "model": {"type": "enum", "enum": MESH_MODELS, "default": "v3.1-20260211",
-              "desc": "Tripo model version (P1 = clean low-poly family)"},
+              "desc": "Tripo model version (P1/P2 = clean low-poly family; "
+                      "P2 preview adds native quad + up to 50k faces)"},
     "texture": {"type": "bool", "default": True, "desc": "Generate texture"},
     "pbr": {"type": "bool", "default": True, "desc": "PBR maps (forces texture)"},
     "texture_quality": {"type": "enum", "enum": ["standard", "detailed", "extreme"],
                         "default": "standard", "desc": "detailed=+10cr, extreme(8K)=+20cr"},
     "geometry_quality": {"type": "enum", "enum": ["standard", "detailed"],
                          "default": "standard", "desc": "detailed(Ultra)=+20cr, v3.0+ only"},
-    "face_limit": {"type": "int", "min": 50, "max": 2_000_000, "default": None,
-                   "desc": "Target faces; adaptive if empty. P1: 50-20000"},
-    "quad": {"type": "bool", "default": False, "desc": "Quad topology (+5cr, FBX output, v3.0+)"},
+    "face_limit": {"type": "int", "min": 48, "max": 2_000_000, "default": None,
+                   "desc": "Target faces; adaptive if empty. P1: 50-20000; "
+                           "P2: 48-50000 tri / 48-25000 quad"},
+    "quad": {"type": "bool", "default": False,
+             "desc": "Quad topology (H v3.0+: +5cr, FBX output; P2: native quads)"},
     "smart_low_poly": {"type": "bool", "default": False, "desc": "+10cr, v3.0+"},
     "generate_parts": {"type": "bool", "default": False,
                        "desc": "+20cr, v3.0+; incompatible with texture/pbr/quad"},
@@ -119,7 +128,7 @@ OP_SPECS: dict[str, dict[str, Any]] = {
                                  "desc": "Off a ref_set: which reference image to mesh from (single-image → 3D). "
                                          "Tripo takes one image here; the model imagines the unseen sides"},
                    "n": {"type": "int", "min": 1, "max": 6, "default": 1, "desc": "Parallel candidates"}},
-        "credits": "20 (H) / 30 (P1) + quality surcharges",
+        "credits": "20 (H) / 30 (P1) / P2 preview unpublished + quality surcharges",
         "desc": "Multiview mesh from a split node — or single-image mesh when "
                 "branched directly off an image node (no split needed).",
     },
@@ -296,8 +305,9 @@ def clean_mesh_options(opts: dict[str, Any]) -> dict[str, Any]:
         val = opts.get(key, spec.get("default"))
         if val is None or val == "":
             continue
-        if model.startswith("P1"):
-            if key not in P1_ALLOWED:
+        if model.startswith("P"):
+            allowed = P2_ALLOWED if model.startswith("P2") else P1_ALLOWED
+            if key not in allowed:
                 continue
         elif key in V30_PLUS_PARAMS and _H_ORDER.get(model, 99) < _H_ORDER["v3.0-20250812"]:
             continue  # strip v3.0+-only params for v2.5

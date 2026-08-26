@@ -102,7 +102,9 @@ costs). Summary:
 - **mesh_gen** — Tripo →3D. Off a split (or image_to_multiview) parent: multiview
   mesh from the 4 views. Off an image node directly: single-image mesh (faster,
   no grid needed; back side is imagined by the model).
-  Key options: `model` (`v3.1-20260211` best, `P1-20260311` low-poly), `texture`,
+  Key options: `model` (`v3.1-20260211` best, `P1-20260311` low-poly,
+  `P2-20260801` low-poly preview: native `quad` topology, 48-50000 tri /
+  48-25000 quad faces), `texture`,
   `pbr`, `texture_quality standard|detailed|extreme`, `geometry_quality`,
   `face_limit`, `quad`, seeds. Invalid params for a model version are stripped
   automatically.
