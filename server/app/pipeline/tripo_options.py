@@ -61,6 +61,43 @@ MESH_GEN_FIELDS: dict[str, dict[str, Any]] = {
     "export_uv": {"type": "bool", "default": True},
 }
 
+# --- Per-model form overrides (consumed by the UI via /api/ops) -------------
+# For each mesh_gen field, "per_model" maps a model id to {hidden?, min?, max?,
+# desc?, default?} so the form can show only what the chosen model actually
+# takes, with that model's real ranges. Hidden-ness is DERIVED from the same
+# allowlists clean_mesh_options enforces — one source of truth, the form can
+# never drift from the cleaner.
+_P_FAMILY_ALLOWED = {"P1-20260311": P1_ALLOWED, "P2-20260801": P2_ALLOWED}
+
+
+def _build_mesh_per_model() -> None:
+    for key, fspec in MESH_GEN_FIELDS.items():
+        if key == "model":
+            continue
+        pm: dict[str, dict[str, Any]] = {}
+        for m, allowed in _P_FAMILY_ALLOWED.items():
+            if key not in allowed:
+                pm[m] = {"hidden": True}
+        if key in V30_PLUS_PARAMS:
+            pm["v2.5-20250123"] = {"hidden": True}
+        if pm:
+            fspec.setdefault("per_model", {}).update(pm)
+    # Family-true ranges + descriptions (API-verified 2026-08-25).
+    MESH_GEN_FIELDS["face_limit"].setdefault("per_model", {}).update({
+        "P1-20260311": {"min": 50, "max": 20_000,
+                        "desc": "Target faces; adaptive if empty. P1 range: 50-20000"},
+        "P2-20260801": {"min": 48, "max": 50_000,
+                        "desc": "Face budget; adaptive if empty. P2: 48-50000 tri, "
+                                "48-25000 with quad on (a quad counts as one face)"},
+    })
+    MESH_GEN_FIELDS["quad"].setdefault("per_model", {}).update({
+        "P2-20260801": {"desc": "Native quad topology (P2's marquee feature; "
+                                "caps face budget at 25000)"},
+    })
+
+
+_build_mesh_per_model()
+
 _IMAGE_COMMON_FIELDS: dict[str, Any] = {
     "prompt": {"type": "text", "default": "", "desc": "Subject prompt (project prompt if empty)"},
     "model": {"type": "enum", "enum": list(IMAGE_MODELS), "default": DEFAULT_IMAGE_MODEL,

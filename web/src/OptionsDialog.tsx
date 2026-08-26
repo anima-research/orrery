@@ -50,6 +50,13 @@ export function OptionsDialog({
 
   const set = (k: string, v: any) => setValues((prev) => ({ ...prev, [k]: v }));
 
+  // Per-model overrides: the spec may scope a field (hidden / min / max / desc /
+  // default) to the currently selected `model` value.
+  const effective = (f: FieldSpec): FieldSpec & { hidden?: boolean } => {
+    const ov = f.per_model?.[values.model];
+    return ov ? { ...f, ...ov } : f;
+  };
+
   const submit = async () => {
     setBusy(true);
     setErr(null);
@@ -57,6 +64,8 @@ export function OptionsDialog({
       const options: Record<string, any> = {};
       for (const [key, f] of Object.entries(fields)) {
         if (key === "n") continue;
+        const ef = effective(f);
+        if (ef.hidden) continue; // not applicable to the chosen model — never submit
         let v = values[key];
         if (v === "" || v === undefined || v === null) continue;
         if (f.type === "int") v = parseInt(v, 10);
@@ -69,6 +78,12 @@ export function OptionsDialog({
           }
         }
         if (Number.isNaN(v)) continue;
+        // catch stale last-used values that are out of range for the model
+        // picked now (e.g. an H-series face_limit carried into P2)
+        if ((f.type === "int" || f.type === "float") && typeof v === "number") {
+          if (ef.min != null && v < ef.min) throw new Error(`${key}: ${v} is below ${ef.min}${values.model ? ` for ${values.model}` : ""}`);
+          if (ef.max != null && v > ef.max) throw new Error(`${key}: ${v} exceeds ${ef.max}${values.model ? ` for ${values.model}` : ""}`);
+        }
         options[key] = v;
       }
       if ("prompt" in fields && !options.prompt?.trim()) {
@@ -146,7 +161,9 @@ export function OptionsDialog({
         <div className="form-grid">
           {Object.entries(fields)
             .filter(([k]) => k !== "n")
-            .map(([key, f]) => (
+            .map(([key, f]) => ({ key, f: effective(f) }))
+            .filter(({ f }) => !f.hidden)
+            .map(({ key, f }) => (
               <span key={key} style={{ display: "contents" }}>
                 <label title={f.desc}>{key}</label>
                 {renderField(key, f)}

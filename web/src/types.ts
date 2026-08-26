@@ -67,6 +67,10 @@ export interface FieldSpec {
   min?: number;
   max?: number;
   desc?: string;
+  /** Per-model form overrides: keyed by the op's `model` value; fields the
+   *  chosen model doesn't take carry hidden:true (server derives this from
+   *  the same allowlists its option cleaner enforces). */
+  per_model?: Record<string, Partial<FieldSpec> & { hidden?: boolean }>;
 }
 
 export interface OpSpec {
