@@ -311,3 +311,32 @@ def test_rescale_target_size_math(tmp_path):
     out = tmp_path / "s.glb"
     wrap_scale(cube_glb(), out, 1.7 / cur)  # target largest = 1.7
     assert abs(glb_bounds(out)["largest"] - 1.7) < 1e-4
+
+
+# ---------- upload path-traversal hardening ----------
+
+def test_safe_name_strips_traversal_and_absolute_paths():
+    from app.pipeline.engine import Engine
+    sn = Engine.safe_name
+    # legit names pass through
+    assert sn("photo.png", "ref.png") == "photo.png"
+    assert sn("a/b/c.glb", "ref.png") == "c.glb"
+    # absolute paths and traversal collapse to a bare basename
+    assert sn("/etc/cron.d/pwn", "ref.png") == "pwn"
+    assert sn("../../../../etc/passwd", "ref.png") == "passwd"
+    assert sn("..\\..\\windows\\x.dll", "ref.png") == "x.dll"
+    # empties / dot names / dotfiles fall back to the default
+    for bad in ("", None, ".", "..", ".env"):
+        assert sn(bad, "ref.png") == "ref.png"
+    # result never contains a separator
+    for name in ("/x", "../x", "a/b", "x\\y"):
+        assert "/" not in sn(name, "ref.png")
+
+
+def test_secure_dest_keeps_uploads_under_base(tmp_path):
+    from app.pipeline.engine import engine
+    base = tmp_path / "refs"
+    base.mkdir()
+    for evil in ("/etc/cron.d/pwn", "../../../../etc/passwd", "..\\..\\x"):
+        dest = engine.secure_dest(base, evil, "ref.png")
+        assert dest.parent == base.resolve()

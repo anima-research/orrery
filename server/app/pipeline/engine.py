@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Optional, Sequence
 
 from sqlmodel import select
@@ -48,6 +48,32 @@ class Engine:
 
     def abs(self, rel: str) -> Path:
         return get_settings().data_dir / rel
+
+    @staticmethod
+    def safe_name(filename: str | None, default: str) -> str:
+        """Reduce a client-supplied upload filename to a bare, safe basename.
+
+        Strips every directory component (so absolute paths like
+        ``/etc/cron.d/x`` and traversal like ``../../etc/x`` collapse to their
+        final segment), normalizes Windows separators, and rejects the empty
+        string, ``.``/``..`` and dotfiles — falling back to ``default``. The
+        result never contains a path separator, so joining it onto a base
+        directory cannot escape that directory."""
+        raw = (filename or "").replace("\\", "/")
+        name = PurePosixPath(raw).name.strip()
+        if not name or name in (".", "..") or "/" in name or name.startswith("."):
+            return default
+        return name
+
+    def secure_dest(self, base: Path, filename: str | None, default: str) -> Path:
+        """Build a destination path under ``base`` from an untrusted filename,
+        sanitizing the name and asserting containment as defense in depth."""
+        name = self.safe_name(filename, default)
+        dest = (base / name).resolve()
+        base_resolved = base.resolve()
+        if base_resolved not in dest.parents and dest != base_resolved:
+            raise ValueError(f"unsafe upload path: {filename!r}")
+        return dest
 
     # ---------- db helpers ----------
 

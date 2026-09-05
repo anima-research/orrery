@@ -129,7 +129,10 @@ async def import_model(project_id: str, file: UploadFile = File(...),
     nodes = await engine.create_nodes(project_id, None, OpType.import_model, {},
                                       autostart=False)
     node = nodes[0]
-    ext = (file.filename or "model.glb").rsplit(".", 1)[-1].lower()
+    safe = engine.safe_name(file.filename, "model.glb")
+    ext = safe.rsplit(".", 1)[-1].lower()
+    if not ext.isalnum():
+        ext = "glb"
     dest = engine.node_dir(project_id, node.id) / f"model.{ext}"
     dest.write_bytes(await file.read())
     meta = {"format": ext, "filename": file.filename}
@@ -151,7 +154,8 @@ async def upload_node_ref(node_id: str, file: UploadFile = File(...),
     node = await node_access(node_id, ident, write=True)
     if node.op_type != OpType.ref_set:
         raise HTTPException(400, "refs can only be added to ref_set nodes")
-    dest = engine.node_dir(node.project_id, node.id) / (file.filename or "ref.png")
+    dest = engine.secure_dest(engine.node_dir(node.project_id, node.id),
+                              file.filename, "ref.png")
     i = 1
     while dest.exists():
         dest = dest.with_name(f"{dest.stem}_{i}{dest.suffix}")

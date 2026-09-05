@@ -82,7 +82,7 @@ async def patch_project(project_id: str, body: ProjectPatch,
 async def upload_ref(project_id: str, file: UploadFile = File(...),
                      ident: Identity = Depends(current_identity)) -> Asset:
     await project_access(project_id, ident, write=True)
-    dest = engine.refs_dir(project_id) / (file.filename or "ref.png")
+    dest = engine.secure_dest(engine.refs_dir(project_id), file.filename, "ref.png")
     # de-dupe filename
     i = 1
     while dest.exists():
