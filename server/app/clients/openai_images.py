@@ -4,11 +4,11 @@ gpt-image-2.5-flare / -sunburst are Images-API ONLY (Responses -> 404, chat ->
 503); gpt-image-2 is on the same endpoint with the same params.
 
 - POST /v1/images/generations   json  {model, prompt, size, quality, output_format, n}
-- POST /v1/images/edits         multipart, same fields + image[] files (<=16) +
-                                input_fidelity low|high
-- size: "auto" or any WxH with both divisible by 16 (that's the only pre-gen
-  validation; 4096x4096 accepted).  quality: low|medium|high|auto.
+- POST /v1/images/edits         multipart, same fields + image[] files (<=16)
+- size: "auto" or any WxH, both %16, longest edge <= 3840, pixel budget
+  8,294,400 (= 3840x2160) — all three models.  quality: low|medium|high|auto.
   output_format: png|webp|jpeg.  background: transparent|opaque|auto.
+  input_fidelity is REJECTED by 2.5-flare/-sunburst and gpt-image-2 (400).
 - synchronous (10-60 s), image returned base64 in data[].b64_json,
   usage {input_tokens, output_tokens, input_tokens_details{text_tokens,image_tokens}}
   -> cost computed from the per-model token price table below.
@@ -66,10 +66,10 @@ class OpenAIImagesClient:
         dest: Path,
         *,
         ref_paths: list[Path] | None = None,
-        params: dict | None = None,   # size / quality / input_fidelity / background
+        params: dict | None = None,   # size / quality / background
     ) -> GenResult:
         """One image. With ref_paths -> /images/edits (multipart), else
-        /images/generations (json). input_fidelity only exists on edits."""
+        /images/generations (json)."""
         params = {k: v for k, v in (params or {}).items() if v not in (None, "")}
         refs = list(ref_paths or [])[:16]
         async with self._sem:
@@ -91,8 +91,7 @@ class OpenAIImagesClient:
                         for fh in handles:
                             fh.close()
                 else:
-                    params.pop("input_fidelity", None)
-                    body = {"model": model, "prompt": prompt, "n": 1, "output_format": "png",
+                    body ={"model": model, "prompt": prompt, "n": 1, "output_format": "png",
                             **params}
                     r = await client.post(f"{BASE}/images/generations", headers=self._headers,
                                           json=body)

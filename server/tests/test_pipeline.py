@@ -209,17 +209,20 @@ def test_openai_direct_models():
     assert model_entry("gpt-image-2") is IMAGE_MODELS["gpt-image-2 @wavespeed"]
     assert model_entry("gpt-image-2.5") is IMAGE_MODELS[DEFAULT_IMAGE_MODEL]
 
-    # size = WxH, %16, 4k -> 4096 on the long side, quality passthrough,
-    # input_fidelity forwarded only for low/high
+    # size = WxH, %16, inside the live-verified limits (3840 edge, 8,294,400 px
+    # budget) for EVERY tier x aspect; quality passthrough; no input_fidelity
     m = IMAGE_MODELS[DEFAULT_IMAGE_MODEL]["map_options"]
     p = m({"resolution": "4k", "aspect_ratio": "1:1", "quality": "low"})
-    assert p == {"size": "4096x4096", "quality": "low", "input_fidelity": None}
-    p = m({"resolution": "2k", "aspect_ratio": "16:9", "input_fidelity": "high"})
+    assert p == {"size": "2864x2864", "quality": "low"}
+    assert m({"resolution": "4k", "aspect_ratio": "16:9"})["size"] == "3840x2160"
+    p = m({"resolution": "2k", "aspect_ratio": "16:9"})
     w, h = map(int, p["size"].split("x"))
-    assert w == 2048 and h % 16 == 0 and abs(w / h - 16 / 9) < 0.05
-    assert p["quality"] == "high" and p["input_fidelity"] == "high"
-    assert m({"input_fidelity": "auto"})["input_fidelity"] is None
+    assert w == 2048 and h % 16 == 0 and abs(w / h - 16 / 9) < 0.05 and p["quality"] == "high"
     assert m({"resolution": "0.5k"})["size"] == "512x512"
+    for res in ("0.5k", "1k", "2k", "4k"):
+        for ar in ("1:1", "3:2", "2:3", "16:9", "9:16"):
+            w, h = map(int, m({"resolution": res, "aspect_ratio": ar})["size"].split("x"))
+            assert w % 16 == 0 and h % 16 == 0 and max(w, h) <= 3840 and w * h <= 3840 * 2160, (res, ar, w, h)
 
     # exact-usage cost: 20 text + 1000 image in, 229 out @ $5/$8/$30 per M
     usage = {"input_tokens": 1020, "output_tokens": 229,

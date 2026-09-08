@@ -107,9 +107,6 @@ _IMAGE_COMMON_FIELDS: dict[str, Any] = {
                            "0.5k = gemini-flash + gpt-image @openai)"},
     "quality": {"type": "enum", "enum": ["low", "medium", "high"], "default": "high",
                 "desc": "gpt-image family only (2.5 flare/sunburst, 2); other models ignore it"},
-    "input_fidelity": {"type": "enum", "enum": ["auto", "low", "high"], "default": "auto",
-                       "desc": "gpt-image @openai edits only: how closely reference images are "
-                               "preserved (high = more input tokens). auto = API default"},
     "aspect_ratio": {"type": "enum", "enum": ["1:1", "3:2", "2:3", "16:9", "9:16"], "default": "1:1"},
     "seed": {"type": "int", "default": None, "desc": "Honored by FLUX 2 only"},
     "character": {"type": "bool", "default": False,

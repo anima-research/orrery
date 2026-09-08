@@ -87,17 +87,20 @@ def _ws_luma(opts, ref_urls, edit_mode):
 
 # ---------- openai direct (Images API) ----------
 
-_OAI_SIDES = {"0.5k": 512, "1k": 1024, "2k": 2048, "4k": 4096}
+# Verified live 2026-09-08 (flare, sunburst AND gpt-image-2 direct all agree):
+# longest edge <= 3840, pixel budget exactly 8,294,400 (= 3840x2160; 2880x2880
+# passes, 2896x2896 fails), both sides %16, input_fidelity NOT supported.
+_OAI_SIDES = {"0.5k": 512, "1k": 1024, "2k": 2048, "4k": 3840}
+_OAI_MAX_PX = 3840 * 2160
 
 
 def _oai_options(opts: dict) -> dict:
-    """Canonical opts -> Images API params. size = WxH (both %16; the API's
-    only pre-gen check), quality low/medium/high passthrough, input_fidelity
-    forwarded (client drops it on plain generations)."""
-    w, h = _dims(opts, max_side=_OAI_SIDES, max_mp=17.0)
-    fid = opts.get("input_fidelity")
-    return {"size": f"{w}x{h}", "quality": opts.get("quality") or "high",
-            "input_fidelity": fid if fid in ("low", "high") else None}
+    """Canonical opts -> Images API params. size = WxH inside the 3840-edge /
+    8.29MP budget ("4k" 1:1 lands at 2864x2864, 16:9 at 3840x2160), quality
+    low/medium/high passthrough."""
+    w, h = _dims(opts, max_side=_OAI_SIDES, max_mp=8.2)
+    assert w * h <= _OAI_MAX_PX and max(w, h) <= 3840, (w, h)
+    return {"size": f"{w}x{h}", "quality": opts.get("quality") or "high"}
 
 
 def _oai_entry(model_id: str, notes: str) -> dict[str, Any]:
@@ -110,8 +113,8 @@ def _oai_entry(model_id: str, notes: str) -> dict[str, Any]:
 IMAGE_MODELS: dict[str, dict[str, Any]] = {
     "gpt-image-2.5-flare @openai": _oai_entry(
         "gpt-image-2.5-flare",
-        "direct OpenAI; 1k/2k/4k + quality + input_fidelity; refs<=16; token-billed "
-        "($5/$8/$30 per M text-in/img-in/img-out, exact usage recorded)"),
+        "direct OpenAI; 1k/2k/4k (4k = 8.3MP budget, 3840 edge) + quality; refs<=16; "
+        "token-billed ($5/$8/$30 per M text-in/img-in/img-out, exact usage recorded)"),
     "gpt-image-2.5-sunburst @openai": _oai_entry(
         "gpt-image-2.5-sunburst",
         "direct OpenAI, sunburst snapshot; same params/pricing as flare"),
