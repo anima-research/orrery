@@ -196,6 +196,38 @@ def test_image_model_mappers():
         model_entry("dalle-9000")
 
 
+def test_openai_direct_models():
+    from app.clients.openai_images import cost_from_usage
+    from app.pipeline.image_models import DEFAULT_IMAGE_MODEL, IMAGE_MODELS, model_entry
+
+    # 2.5 flare is the default; sunburst + gpt-image-2 direct are siblings; the
+    # WaveSpeed relay stays and old "gpt-image-2" option values still mean it
+    assert DEFAULT_IMAGE_MODEL == "gpt-image-2.5-flare @openai"
+    for k in ("gpt-image-2.5-flare @openai", "gpt-image-2.5-sunburst @openai", "gpt-image-2 @openai"):
+        e = IMAGE_MODELS[k]
+        assert e["provider"] == "openai" and e["max_refs"] == 16 and e["path"] == k.split(" @")[0]
+    assert model_entry("gpt-image-2") is IMAGE_MODELS["gpt-image-2 @wavespeed"]
+    assert model_entry("gpt-image-2.5") is IMAGE_MODELS[DEFAULT_IMAGE_MODEL]
+
+    # size = WxH, %16, 4k -> 4096 on the long side, quality passthrough,
+    # input_fidelity forwarded only for low/high
+    m = IMAGE_MODELS[DEFAULT_IMAGE_MODEL]["map_options"]
+    p = m({"resolution": "4k", "aspect_ratio": "1:1", "quality": "low"})
+    assert p == {"size": "4096x4096", "quality": "low", "input_fidelity": None}
+    p = m({"resolution": "2k", "aspect_ratio": "16:9", "input_fidelity": "high"})
+    w, h = map(int, p["size"].split("x"))
+    assert w == 2048 and h % 16 == 0 and abs(w / h - 16 / 9) < 0.05
+    assert p["quality"] == "high" and p["input_fidelity"] == "high"
+    assert m({"input_fidelity": "auto"})["input_fidelity"] is None
+    assert m({"resolution": "0.5k"})["size"] == "512x512"
+
+    # exact-usage cost: 20 text + 1000 image in, 229 out @ $5/$8/$30 per M
+    usage = {"input_tokens": 1020, "output_tokens": 229,
+             "input_tokens_details": {"text_tokens": 20, "image_tokens": 1000}}
+    assert cost_from_usage("gpt-image-2.5-flare", usage) == round((20 * 5 + 1000 * 8 + 229 * 30) / 1e6, 4)
+    assert cost_from_usage("gpt-image-2.5-flare", None) == 0.0
+
+
 # ---------- mesh dimensions + rescale ----------
 
 def test_glb_bounds_and_rescale(tmp_path):

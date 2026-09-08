@@ -4,6 +4,8 @@ each provider's real params.
 
 Providers:
 - wavespeed:  entry["ws_request"](opts, ref_urls, edit_mode) -> (endpoint, body, est_cost)
+- openai:     entry["map_options"](opts) -> params for the direct Images API
+              (gpt-image-2.5 flare/sunburst live ONLY here — WaveSpeed has no 2.5)
 - openrouter: entry["map_options"](opts) -> params for the unified Image API
 - bfl:        entry["map_options"](opts) -> kwargs for BFLClient.generate
 """
@@ -83,13 +85,44 @@ def _ws_luma(opts, ref_urls, edit_mode):
     return "luma/uni-v1/text-to-image", body, 0.042 + 0.003 * len(ref_urls[:3])
 
 
+# ---------- openai direct (Images API) ----------
+
+_OAI_SIDES = {"0.5k": 512, "1k": 1024, "2k": 2048, "4k": 4096}
+
+
+def _oai_options(opts: dict) -> dict:
+    """Canonical opts -> Images API params. size = WxH (both %16; the API's
+    only pre-gen check), quality low/medium/high passthrough, input_fidelity
+    forwarded (client drops it on plain generations)."""
+    w, h = _dims(opts, max_side=_OAI_SIDES, max_mp=17.0)
+    fid = opts.get("input_fidelity")
+    return {"size": f"{w}x{h}", "quality": opts.get("quality") or "high",
+            "input_fidelity": fid if fid in ("low", "high") else None}
+
+
+def _oai_entry(model_id: str, notes: str) -> dict[str, Any]:
+    return {"provider": "openai", "path": model_id, "supports_refs": True, "max_refs": 16,
+            "map_options": _oai_options, "notes": notes}
+
+
 # ---------- registry ----------
 
 IMAGE_MODELS: dict[str, dict[str, Any]] = {
+    "gpt-image-2.5-flare @openai": _oai_entry(
+        "gpt-image-2.5-flare",
+        "direct OpenAI; 1k/2k/4k + quality + input_fidelity; refs<=16; token-billed "
+        "($5/$8/$30 per M text-in/img-in/img-out, exact usage recorded)"),
+    "gpt-image-2.5-sunburst @openai": _oai_entry(
+        "gpt-image-2.5-sunburst",
+        "direct OpenAI, sunburst snapshot; same params/pricing as flare"),
+    "gpt-image-2 @openai": _oai_entry(
+        "gpt-image-2",
+        "previous generation via the same direct endpoint (WaveSpeed-free); "
+        "priced at 2.5 rates (estimate)"),
     "gpt-image-2 @wavespeed": {
         "provider": "wavespeed", "supports_refs": True, "max_refs": 16,
         "ws_request": _ws_gpt2,
-        "notes": "reference model; resolution 1k/2k/4k + quality; refs<=16",
+        "notes": "previous default (WaveSpeed relay); resolution 1k/2k/4k + quality; refs<=16",
     },
     "gemini-3-pro @wavespeed": {
         "provider": "wavespeed", "supports_refs": True, "max_refs": 14,
@@ -137,13 +170,17 @@ IMAGE_MODELS: dict[str, dict[str, Any]] = {
     },
 }
 
-DEFAULT_IMAGE_MODEL = "gpt-image-2 @wavespeed"
+DEFAULT_IMAGE_MODEL = "gpt-image-2.5-flare @openai"
 
 
-# legacy option values from before the registry existed
+# legacy option values from before the registry existed — "gpt-image-2" nodes
+# keep meaning the WaveSpeed relay they were made with.
 _ALIASES = {
-    "openai/gpt-image-2": DEFAULT_IMAGE_MODEL,
-    "gpt-image-2": DEFAULT_IMAGE_MODEL,
+    "openai/gpt-image-2": "gpt-image-2 @wavespeed",
+    "gpt-image-2": "gpt-image-2 @wavespeed",
+    "gpt-image-2.5": DEFAULT_IMAGE_MODEL,
+    "gpt-image-2.5-flare": DEFAULT_IMAGE_MODEL,
+    "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst @openai",
 }
 
 

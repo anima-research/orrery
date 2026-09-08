@@ -1,6 +1,7 @@
 # orrery
 
-Reference images + prompts → 4-view turnaround (gpt-image-2 via WaveSpeed) → 3D mesh
+Reference images + prompts → 4-view turnaround (gpt-image-2.5 flare/sunburst direct via
+OpenAI Images API; gpt-image-2 direct or via WaveSpeed, plus other models) → 3D mesh
 (Tripo multiview) → texture / retopo / rig / animate / convert — all stored as an
 **append-only version tree**: every retry is a new sibling branch, every prior branch
 stays instantly switchable, nothing is ever overwritten.
@@ -18,7 +19,8 @@ cd web && npm run dev
 cd web && npm run build
 ```
 
-Keys live in `.env` at the repo root (`WAVESPEED_API_KEY`, `TRIPO_API_KEY`).
+Keys live in `.env` at the repo root (`OPENAI_API_KEY` for the gpt-image-2.5 default,
+`WAVESPEED_API_KEY`, `TRIPO_API_KEY`).
 Useful env vars: `MOCK_APIS=1` (offline fixtures), `DATA_DIR`, `WAVESPEED_MAX_CONCURRENCY`
 (default 2 = Bronze tier; raise to ~300 after any WaveSpeed top-up), `TRIPO_MAX_CONCURRENCY`.
 

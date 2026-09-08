@@ -91,7 +91,8 @@ async def agents_guide():
 async def health() -> dict:
     s = get_settings()
     return {"ok": True, "mock": s.mock_apis,
-            "keys": {"wavespeed": bool(s.wavespeed_api_key), "tripo": bool(s.tripo_api_key)}}
+            "keys": {"wavespeed": bool(s.wavespeed_api_key), "tripo": bool(s.tripo_api_key),
+                     "openai": bool(s.openai_api_key)}}
 
 
 # Serve the built UI (web/dist) if present; SPA fallback to index.html.

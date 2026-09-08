@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     wavespeed_api_key: str = ""
     tripo_api_key: str = ""
+    openai_api_key: str = ""         # direct Images API: gpt-image-2.5-{flare,sunburst}, gpt-image-2
+    openai_images_max_concurrency: int = 4
     openrouter_api_key: str = ""
     blackforest_api_key: str = ""
     gemini_api_key: str = ""

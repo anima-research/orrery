@@ -121,7 +121,7 @@ async def _first_image_asset(eng, node_id: str) -> Path | None:
 async def _run_image_op(eng, node: Node, ref_paths: list[Path], is_grid_default: bool,
                         edit_mode: bool = False, output_grid: bool | None = None) -> None:
     """Shared body of image_gen / image_edit — dispatches to the provider named
-    by the model registry entry (wavespeed | openrouter | bfl).
+    by the model registry entry (openai | wavespeed | openrouter | bfl).
 
     output_grid decouples "is the OUTPUT a 4-view grid" from "append the grid
     contract to the prompt" — an edit of a grid stays a grid even when no
@@ -161,6 +161,15 @@ async def _run_image_op(eng, node: Node, ref_paths: list[Path], is_grid_default:
         result = await ws.run(
             endpoint, body, dest, cost_usd=cost, on_submit=on_submit,
             existing_prediction_id=node.provider_task_id if node.provider == "wavespeed" else None,
+        )
+    elif provider == "openai":
+        from ..clients.openai_images import OpenAIImagesClient
+        if not get_settings().openai_api_key:
+            raise RuntimeError(f"model {model_key} needs OPENAI_API_KEY in .env")
+        await eng.update_node(node.id, provider="openai")
+        result = await OpenAIImagesClient().generate(
+            entry["path"], prompt, dest, ref_paths=refs,
+            params=entry["map_options"](opts),
         )
     elif provider == "openrouter":
         from ..clients.openrouter import OpenRouterImageClient
