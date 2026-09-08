@@ -200,9 +200,9 @@ def test_openai_direct_models():
     from app.clients.openai_images import cost_from_usage
     from app.pipeline.image_models import DEFAULT_IMAGE_MODEL, IMAGE_MODELS, model_entry
 
-    # 2.5 flare is the default; sunburst + gpt-image-2 direct are siblings; the
+    # 2.5 sunburst is the default; flare + gpt-image-2 direct are siblings; the
     # WaveSpeed relay stays and old "gpt-image-2" option values still mean it
-    assert DEFAULT_IMAGE_MODEL == "gpt-image-2.5-flare @openai"
+    assert DEFAULT_IMAGE_MODEL == "gpt-image-2.5-sunburst @openai"
     for k in ("gpt-image-2.5-flare @openai", "gpt-image-2.5-sunburst @openai", "gpt-image-2 @openai"):
         e = IMAGE_MODELS[k]
         assert e["provider"] == "openai" and e["max_refs"] == 16 and e["path"] == k.split(" @")[0]

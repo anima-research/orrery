@@ -115,13 +115,13 @@ def _oai_entry(model_id: str, notes: str) -> dict[str, Any]:
 # ---------- registry ----------
 
 IMAGE_MODELS: dict[str, dict[str, Any]] = {
-    "gpt-image-2.5-flare @openai": _oai_entry(
-        "gpt-image-2.5-flare",
-        "direct OpenAI; 1k/2k/4k (4k = 8.3MP budget, 3840 edge) + quality; refs<=16; "
-        "token-billed ($5/$8/$30 per M text-in/img-in/img-out, exact usage recorded)"),
     "gpt-image-2.5-sunburst @openai": _oai_entry(
         "gpt-image-2.5-sunburst",
-        "direct OpenAI, sunburst snapshot; same params/pricing as flare"),
+        "direct OpenAI; 1k/2k/4k (4k = 8.3MP budget, 3840 edge) + quality; refs<=16; "
+        "token-billed ($5/$8/$30 per M text-in/img-in/img-out, exact usage recorded)"),
+    "gpt-image-2.5-flare @openai": _oai_entry(
+        "gpt-image-2.5-flare",
+        "direct OpenAI, flare snapshot; same params/pricing as sunburst"),
     "gpt-image-2 @openai": _oai_entry(
         "gpt-image-2",
         "previous generation via the same direct endpoint (WaveSpeed-free); "
@@ -177,7 +177,7 @@ IMAGE_MODELS: dict[str, dict[str, Any]] = {
     },
 }
 
-DEFAULT_IMAGE_MODEL = "gpt-image-2.5-flare @openai"
+DEFAULT_IMAGE_MODEL = "gpt-image-2.5-sunburst @openai"
 
 
 # legacy option values from before the registry existed — "gpt-image-2" nodes
@@ -186,8 +186,8 @@ _ALIASES = {
     "openai/gpt-image-2": "gpt-image-2 @wavespeed",
     "gpt-image-2": "gpt-image-2 @wavespeed",
     "gpt-image-2.5": DEFAULT_IMAGE_MODEL,
-    "gpt-image-2.5-flare": DEFAULT_IMAGE_MODEL,
-    "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst @openai",
+    "gpt-image-2.5-flare": "gpt-image-2.5-flare @openai",
+    "gpt-image-2.5-sunburst": DEFAULT_IMAGE_MODEL,
 }
 
 
