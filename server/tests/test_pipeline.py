@@ -210,10 +210,11 @@ def test_openai_direct_models():
     assert model_entry("gpt-image-2.5") is IMAGE_MODELS[DEFAULT_IMAGE_MODEL]
 
     # size = WxH, %16, inside the live-verified limits (3840 edge, 8,294,400 px
-    # budget) for EVERY tier x aspect; quality passthrough; no input_fidelity
+    # budget) for EVERY tier x aspect; quality passthrough; no input_fidelity.
+    # 1:1 and 16:9 "4k" both sit EXACTLY on the budget (live-verified to pass)
     m = IMAGE_MODELS[DEFAULT_IMAGE_MODEL]["map_options"]
     p = m({"resolution": "4k", "aspect_ratio": "1:1", "quality": "low"})
-    assert p == {"size": "2864x2864", "quality": "low"}
+    assert p == {"size": "2880x2880", "quality": "low"}
     assert m({"resolution": "4k", "aspect_ratio": "16:9"})["size"] == "3840x2160"
     p = m({"resolution": "2k", "aspect_ratio": "16:9"})
     w, h = map(int, p["size"].split("x"))

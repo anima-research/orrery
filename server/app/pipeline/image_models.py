@@ -96,10 +96,14 @@ _OAI_MAX_PX = 3840 * 2160
 
 def _oai_options(opts: dict) -> dict:
     """Canonical opts -> Images API params. size = WxH inside the 3840-edge /
-    8.29MP budget ("4k" 1:1 lands at 2864x2864, 16:9 at 3840x2160), quality
-    low/medium/high passthrough."""
-    w, h = _dims(opts, max_side=_OAI_SIDES, max_mp=8.2)
-    assert w * h <= _OAI_MAX_PX and max(w, h) <= 3840, (w, h)
+    8,294,400 px budget ("4k" 1:1 lands at 2880x2880, 16:9 at 3840x2160),
+    quality low/medium/high passthrough."""
+    w, h = _dims(opts, max_side=_OAI_SIDES, max_mp=_OAI_MAX_PX / 1e6)
+    while w * h > _OAI_MAX_PX:          # %16 rounding can overshoot the exact budget
+        if w >= h:
+            w -= 16
+        else:
+            h -= 16
     return {"size": f"{w}x{h}", "quality": opts.get("quality") or "high"}
 
 
