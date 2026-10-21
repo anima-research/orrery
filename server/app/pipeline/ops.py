@@ -13,7 +13,9 @@ from ..clients.tripo import TripoError
 from ..models import AssetKind, Node, NodeStatus, OpType
 from ..services.splitter import split_grid
 from .prompts import VIEW_ORDER, assemble_prompt
-from .tripo_options import clean_generic_options, clean_mesh_options, OP_SPECS
+from .tripo_options import (SMART_UV_MAX_TRIS, OP_SPECS, clean_generic_options,
+                            clean_mesh_options, resolve_retarget_animations,
+                            resolve_rig_model, rig_version_of)
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +100,13 @@ async def _archive_model_outputs(eng, node: Node, result, model_ext: str = "glb"
     if out.get("rendered_image_url"):
         path = await get_tripo().download(out["rendered_image_url"], d / "render.png")
         await eng.add_asset(node, AssetKind.render, path, {})
+    if out.get("uv_render_url"):         # Smart UV atlas preview (mesh/uv)
+        url = out["uv_render_url"].split("?")[0]
+        ext = url.rsplit(".", 1)[-1].lower() if "." in url.rsplit("/", 1)[-1] else "png"
+        if ext not in {"png", "webp", "jpg", "jpeg"}:
+            ext = "png"
+        path = await get_tripo().download(out["uv_render_url"], d / f"uv_atlas.{ext}")
+        await eng.add_asset(node, AssetKind.render, path, {"role": "uv_atlas"})
     if result.credits:
         await eng.update_node(node.id, credits=result.credits)
 
@@ -383,9 +392,15 @@ def _generic_postop(op_name: str, endpoint: str, model_ext: str = "glb"):
 async def op_rig(eng, node: Node) -> None:
     """Free rig-check (when rig_type=auto) -> rig. `options.rig_submitted` marks
     whether the persisted provider_task_id belongs to the rig task (vs the
-    rig-check), so restarts resume the right phase."""
+    rig-check), so restarts resume the right phase. The rig model version that
+    actually ran is recorded as `options.model_resolved` — retarget presets
+    depend on it."""
     opts = dict(node.options)
     rig_type = opts.get("rig_type", "auto")
+    # Explicit choices are checked BEFORE any provider call (incl. the free
+    # rig-check), so a v1.0 + vrm request fails fast with the reason.
+    if rig_type != "auto":
+        resolve_rig_model(opts.get("model"), rig_type, opts.get("spec"))
 
     if node.provider_task_id and not opts.get("rig_submitted"):
         # persisted id is a rig-check task from a previous attempt; start over
@@ -406,14 +421,12 @@ async def op_rig(eng, node: Node) -> None:
             node = await eng.get_node(node.id)
         payload = clean_generic_options("rig", opts)
         payload["rig_type"] = rig_type
-        if payload.get("model", "auto") == "auto":
-            # v1.0 retargets bipeds much more cleanly (verified); v2.5 is
-            # required for non-humanoid rig types.
-            payload["model"] = "v1.0-20240301" if rig_type == "biped" else "v2.5-20260210"
+        payload["model"] = resolve_rig_model(payload.get("model"), rig_type, payload.get("spec"))
 
         async def mark_submitted(task_id: str):
             await eng.update_node(node.id, provider="tripo", provider_task_id=task_id,
-                                  options={**node.options, "rig_submitted": True})
+                                  options={**node.options, "rig_submitted": True,
+                                           "model_resolved": payload["model"]})
 
         parent = await eng.get_node(node.parent_id)
         input_val, _ = await _model_input(eng, parent)
@@ -425,6 +438,43 @@ async def op_rig(eng, node: Node) -> None:
         await eng.update_node(node.id, credits=result.credits)
     await _archive_model_outputs(eng, node, result,
                                  model_ext=opts.get("out_format", "glb"))
+
+
+async def op_retarget(eng, node: Node) -> None:
+    """Preset animations onto a Tripo rig. Presets are checked/translated
+    against the parent rig's version locally — no credits burned on a name
+    Tripo would 1004, and the error lists what IS valid."""
+    parent = await eng.get_node(node.parent_id)
+    rig_version = rig_version_of(parent.options) if parent.op_type == OpType.rig else None
+    anims = resolve_retarget_animations(node.options.get("animations"), rig_version)
+    if anims != node.options.get("animations"):
+        await eng.update_node(node.id, options={**node.options, "animations": anims,
+                                                "rig_version": rig_version})
+    payload = clean_generic_options("retarget", node.options)
+    payload["animations"] = anims
+    result = await _run_tripo_postop(eng, node, "animations/retarget", payload)
+    await _archive_model_outputs(eng, node, result,
+                                 model_ext=node.options.get("out_format") or "glb")
+
+
+async def op_uv(eng, node: Node) -> None:
+    """Smart UV (Tripo mesh/uv): AI re-unwrap + remap textures/rig/animation.
+    Over 80k triangles Tripo accepts the task and then fails it (refunded) —
+    count locally first so the user learns that in a second, not minutes."""
+    from .meshinfo import glb_triangle_count
+
+    parent = await eng.get_node(node.parent_id)
+    models = await eng.node_assets(parent.id, AssetKind.model)
+    glbs = [a for a in models if (a.meta.get("format") or "glb") in ("glb", "gltf")]
+    if glbs:
+        tris = glb_triangle_count(eng.abs(glbs[0].path))
+        if tris and tris > SMART_UV_MAX_TRIS:
+            raise RuntimeError(
+                f"Smart UV takes at most {SMART_UV_MAX_TRIS:,} triangles; this mesh has "
+                f"{tris:,}. Branch a retopo first (v3.0, face_limit up to 20000), then uv.")
+    payload = clean_generic_options("uv", node.options)
+    result = await _run_tripo_postop(eng, node, "mesh/uv", payload)
+    await _archive_model_outputs(eng, node, result)
 
 
 async def op_rescale(eng, node: Node) -> None:
@@ -547,8 +597,9 @@ OP_IMPLS = {
     OpType.retopo: _generic_postop("retopo", "mesh/decimate"),
     OpType.segment: _generic_postop("segment", "mesh/segment"),
     OpType.complete: _generic_postop("complete", "mesh/complete"),
+    OpType.uv: op_uv,
     OpType.rig: op_rig,
-    OpType.retarget: _generic_postop("retarget", "animations/retarget"),
+    OpType.retarget: op_retarget,
     OpType.convert: _generic_postop("convert", "models/convert"),
     OpType.rescale: op_rescale,
     OpType.fuse: op_fuse,

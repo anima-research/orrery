@@ -43,7 +43,7 @@ All state in a project is an **append-only tree of nodes**. A node = one operati
 applied to its parent's output, with a full options snapshot:
 
 ```
-ref_set ──▶ image_gen ──▶ split ──▶ mesh_gen ──▶ texture / retopo / rig ──▶ retarget ──▶ convert
+ref_set ──▶ image_gen ──▶ split ──▶ mesh_gen ──▶ texture / retopo / uv / rig ──▶ retarget ──▶ convert
 (refs)      (4-view grid)  (4 PNGs)  (GLB)                                  (animations)   (FBX/USDZ/…)
 ```
 
@@ -105,8 +105,10 @@ costs). Summary:
   Key options: `model` (`v3.1-20260211` best, `P1-20260311` low-poly,
   `P2-20260801` low-poly preview: native `quad` topology, 48-50000 tri /
   48-25000 quad faces), `texture`,
-  `pbr`, `texture_quality standard|detailed|extreme`, `geometry_quality`,
-  `face_limit`, `quad`, seeds. Invalid params for a model version are stripped
+  `pbr`, `texture_quality fast|standard|detailed|extreme`, `geometry_quality`,
+  `face_limit`, `quad`, seeds, `texture_version` (empty = Tripo picks;
+  `v3.5-20260815` = newest texture model, adds `fast` and `delight` — `fast`
+  alone pins v3.5 for you). Invalid params for a model version are stripped
   automatically.
 - **Absolute dimensions & rescale (IMPORTANT)** — Tripo normalizes every mesh to
   **largest bounding-box dimension = 1.0** (a mug and a house both come out "1.0"),
@@ -118,13 +120,34 @@ costs). Summary:
   dimension to 1.7 (or `scale_factor` to multiply directly). The new bounds are
   on the rescale node's model asset. Do this before sending to eidoverse if the
   world expects real-world scale.
-- **texture / retopo / segment / complete / rig / retarget / convert** — Tripo
-  post-ops, each branched off any model-producing node. Rigging: `rig` with
-  `rig_type: auto` (free riggability check picks biped/quadruped/…; model `auto`
-  selects the best rig version). `retarget` needs a rig-node parent and preset
-  names matching the rig version (`preset:biped:idle` for rig v1.0, `preset:idle`
-  for v2.5); `animations` accepts a list — one call, many clips. `convert`
-  exports FBX/USDZ/OBJ/STL/3MF.
+- **texture / retopo / uv / segment / complete / rig / retarget / convert** — Tripo
+  post-ops, each branched off any model-producing node.
+  - **retopo** defaults to **v3.0** (cleaner edge flow, faster; 35 cr tri / 40 cr
+    quad): `face_limit` 500–20000 triangles or 500–10000 with `quad`, empty =
+    adaptive; `smart_uv` (on by default, free) unwraps UVs in the same task.
+    `v2.0` (30 cr) for budgets above 20000.
+  - **uv** = Smart UV (20 cr): AI re-unwrap with fewer seams and better packing
+    that carries the existing textures, rig and animation onto the new layout.
+    Input must be ≤ 80,000 triangles — a raw H-series mesh is often 1–2 M, so
+    retopo first (orrery refuses bigger inputs before spending anything). The
+    UV atlas preview lands as a `render` asset with `meta.role: "uv_atlas"`.
+  - **rig** with `rig_type: auto` (free riggability check picks
+    biped/quadruped/…) and `model: auto` = **rig v3.0**: full-body humanoid rig
+    with finger bones; `spec` picks the skeleton naming — `tripo` (default;
+    what the Eidoverse avatar button converts), `mixamo`, `unreal` (UE5
+    Mannequin), `unity` (Unity Humanoid), `vrm` (VRM 1.0), `actorcore`.
+    `rig_type: others` covers skeletons matching no named type. v1.0 (no
+    fingers) and v2.5 stay selectable but there is rarely a reason to.
+  - **retarget** needs a rig-node parent; up to 5 presets per node. Presets
+    depend on the RIG version (full lists at `GET /api/ops` →
+    `retarget.presets`): a **v3.0** rig plays both libraries — `preset:idle
+    walk run dive climb jump slash shoot hurt fall turn` (+
+    `preset:quadruped:walk`, …) AND the 90+ `preset:biped:*` dances, emotes and
+    sports (`preset:biped:dance_01`, `preset:biped:wave_goodbye_01`, …); v1.0
+    takes only `preset:biped:*`; v2.5 only the short list. Orrery translates
+    `preset:biped:walk` ↔ `preset:walk` where needed and rejects unknown names
+    up front with the valid list — don't guess names.
+  - **convert** exports FBX/USDZ/OBJ/STL/3MF.
 
 ## Recipes
 
@@ -162,7 +185,7 @@ Rig + animate + export, one chain:
 curl -sX POST http://HOST/api/nodes/MESH_NODE/chain -H 'Content-Type: application/json' -d '{
   "specs": [
     {"op": "rig", "options": {"rig_type": "auto"}},
-    {"op": "retarget", "options": {"animations": ["preset:biped:idle", "preset:biped:walk"]}},
+    {"op": "retarget", "options": {"animations": ["preset:idle", "preset:walk"]}},
     {"op": "convert", "options": {"format": "FBX", "fbx_preset": "blender"}}
   ]}'
 ```

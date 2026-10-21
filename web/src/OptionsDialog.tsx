@@ -78,6 +78,10 @@ export function OptionsDialog({
           }
         }
         if (Number.isNaN(v)) continue;
+        // a value valid for another model (e.g. spec=vrm carried over to rig v1.0)
+        if (f.type === "enum" && ef.enum && !ef.enum.includes(v)) {
+          throw new Error(`${key}: ${v || "(none)"} isn't available${values.model ? ` for ${values.model}` : ""} — pick one of ${ef.enum.join(", ")}`);
+        }
         // catch stale last-used values that are out of range for the model
         // picked now (e.g. an H-series face_limit carried into P2)
         if ((f.type === "int" || f.type === "float") && typeof v === "number") {

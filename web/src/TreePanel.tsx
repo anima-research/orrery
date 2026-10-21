@@ -10,6 +10,7 @@ const OP_ICONS: Record<string, string> = {
   image_to_multiview: "🔄",
   texture: "🎨",
   retopo: "🕸",
+  uv: "🗺",
   segment: "🧩",
   complete: "🩹",
   fuse: "⛓",
@@ -24,10 +25,12 @@ const OP_ICONS: Record<string, string> = {
 function thumbFor(node: TreeNode): string | null {
   const order = ["screenshot", "render", "grid", "view", "ref"];
   for (const kind of order) {
-    const a = node.assets.find((a) => a.kind === kind);
+    // a Smart UV atlas is a render too, but a poor picture of the model
+    const a = node.assets.find((a) => a.kind === kind && a.meta?.role !== "uv_atlas");
     if (a) return `/api/assets/${a.id}/file`;
   }
-  return null;
+  const atlas = node.assets.find((a) => a.meta?.role === "uv_atlas");
+  return atlas ? `/api/assets/${atlas.id}/file` : null;
 }
 
 function NodeCard({

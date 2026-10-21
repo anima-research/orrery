@@ -154,6 +154,33 @@ def glb_bounds(path: Path) -> dict | None:
         return None
 
 
+def glb_triangle_count(path: Path) -> int | None:
+    """Rendered triangle count (mesh instances counted per node), from accessor
+    counts only — no vertex data read. None when the file can't be parsed."""
+    try:
+        gltf, _ = read_glb(path)
+    except Exception:
+        return None
+    accessors = gltf.get("accessors", [])
+    meshes = gltf.get("meshes", [])
+
+    def mesh_tris(m: dict) -> int:
+        n = 0
+        for p in m.get("primitives", []):
+            if p.get("mode", 4) != 4:          # only TRIANGLES; strips/fans are rare here
+                continue
+            idx = p.get("indices")
+            acc = idx if idx is not None else p.get("attributes", {}).get("POSITION")
+            if acc is not None and acc < len(accessors):
+                n += accessors[acc].get("count", 0) // 3
+        return n
+
+    uses = [nd["mesh"] for nd in gltf.get("nodes", []) if nd.get("mesh") is not None]
+    if not uses:
+        uses = list(range(len(meshes)))
+    return sum(mesh_tris(meshes[m]) for m in uses if m < len(meshes))
+
+
 # ---------- rescale ----------
 
 def _read_positions(gltf: dict, bin_chunk: bytes, accessor_idx: int) -> list[tuple[float, float, float]]:

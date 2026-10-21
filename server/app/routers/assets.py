@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/assets", tags=["assets"])
 
 mimetypes.add_type("model/gltf-binary", ".glb")
 mimetypes.add_type("model/gltf+json", ".gltf")
+mimetypes.add_type("image/webp", ".webp")       # Smart UV atlas previews
 
 
 @router.get("/{asset_id}")

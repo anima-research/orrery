@@ -10,21 +10,22 @@ const CHILD_OPS: Record<string, string[]> = {
   image_edit: ["image_edit", "split", "mesh_gen", "image_to_multiview"],
   split: ["mesh_gen"],
   image_to_multiview: ["mesh_gen"],
-  mesh_gen: ["texture", "retopo", "segment", "rig", "convert", "rescale"],
-  texture: ["retopo", "segment", "rig", "convert", "rescale"],
-  retopo: ["texture", "rig", "convert", "rescale"],
+  mesh_gen: ["texture", "retopo", "uv", "segment", "rig", "convert", "rescale"],
+  texture: ["retopo", "uv", "segment", "rig", "convert", "rescale"],
+  retopo: ["uv", "texture", "rig", "convert", "rescale"],
+  uv: ["texture", "rig", "convert", "rescale"],
   segment: ["complete", "fuse", "drop"],
-  complete: ["texture", "rig", "convert", "rescale", "fuse", "drop"],
-  fuse: ["fuse", "drop", "complete", "texture", "retopo", "rig", "convert", "rescale"],
-  drop: ["fuse", "drop", "complete", "texture", "retopo", "rig", "convert", "rescale"],
-  rig: ["retarget", "convert"],
+  complete: ["texture", "uv", "rig", "convert", "rescale", "fuse", "drop"],
+  fuse: ["fuse", "drop", "complete", "texture", "retopo", "uv", "rig", "convert", "rescale"],
+  drop: ["fuse", "drop", "complete", "texture", "retopo", "uv", "rig", "convert", "rescale"],
+  rig: ["retarget", "uv", "convert"],
   retarget: ["convert"],
   convert: [],
-  rescale: ["texture", "retopo", "rig", "convert"],
-  import_model: ["texture", "retopo", "segment", "rig", "convert", "image_to_multiview", "rescale"],
+  rescale: ["texture", "retopo", "uv", "rig", "convert"],
+  import_model: ["texture", "retopo", "uv", "segment", "rig", "convert", "image_to_multiview", "rescale"],
 };
 
-const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "complete", "rig", "retarget", "convert", "import_model", "segment", "fuse", "drop"]);
+const MODEL_OPS = new Set(["mesh_gen", "texture", "retopo", "uv", "complete", "rig", "retarget", "convert", "import_model", "segment", "fuse", "drop"]);
 
 const VIEWABLE = new Set(["glb", "gltf", "fbx"]);
 
@@ -293,7 +294,8 @@ export function NodeInspector({
   const compareModel = compare?.assets.find((a) => a.kind === "model");
   const views = node.assets.filter((a) => a.kind === "view");
   const grid = node.assets.find((a) => a.kind === "grid");
-  const render = node.assets.find((a) => a.kind === "render");
+  const render = node.assets.find((a) => a.kind === "render" && a.meta.role !== "uv_atlas");
+  const uvAtlas = node.assets.find((a) => a.kind === "render" && a.meta.role === "uv_atlas");
   const childOps = CHILD_OPS[node.op_type] ?? [];
   const running = node.status === "running" || node.status === "pending";
 
@@ -474,7 +476,7 @@ export function NodeInspector({
                     carry one rigged elsewhere (e.g. auto-rigged in Blender and
                     re-imported) — glb2vrm rejects unrigged models loudly, so
                     offering the button liberally costs nothing. */}
-                {["rig", "retarget", "import_model", "convert"].includes(node.op_type) && (
+                {["rig", "retarget", "uv", "import_model", "convert"].includes(node.op_type) && (
                   <button
                     title={`convert to VRM 1.0 (glb2vrm) and upload as a wearable avatar on ${eidoTarget}`}
                     onClick={async () => {
@@ -562,6 +564,14 @@ export function NodeInspector({
           <h3>Render</h3>
           <div className="img-grid">
             <img src={`/api/assets/${render.id}/file`} style={{ maxWidth: 300 }} onClick={() => setLightbox(`/api/assets/${render.id}/file`)} alt="" />
+          </div>
+        </div>
+      )}
+      {uvAtlas && (
+        <div className="section">
+          <h3>UV atlas</h3>
+          <div className="img-grid">
+            <img src={`/api/assets/${uvAtlas.id}/file`} style={{ maxWidth: 300 }} onClick={() => setLightbox(`/api/assets/${uvAtlas.id}/file`)} alt="UV atlas" />
           </div>
         </div>
       )}

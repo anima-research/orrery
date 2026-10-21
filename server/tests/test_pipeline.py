@@ -94,9 +94,146 @@ def test_mesh_options_unknown_model():
 def test_generic_options_enum_guard():
     from app.pipeline.tripo_options import clean_generic_options
     with pytest.raises(ValueError):
-        clean_generic_options("retopo", {"model": "v3.0"})  # not a valid decimate model
+        clean_generic_options("retopo", {"model": "v9.0"})  # not a valid decimate model
     out = clean_generic_options("retopo", {"model": "v2.0", "face_limit": 5000, "quad": True})
+    # smart_uv is per_model-hidden on v2.0: Tripo 1004s it there, so never sent
     assert out == {"model": "v2.0", "face_limit": 5000, "quad": True, "bake": True}
+
+
+# ---------- 2026-10 features: retopo v3.0, smart UV, texture v3.5, rig v3.0 ----------
+
+def test_retopo_v3_default_and_smart_uv():
+    from app.pipeline.tripo_options import clean_generic_options
+    out = clean_generic_options("retopo", {})
+    assert out == {"model": "v3.0", "face_limit": 10000, "quad": False,
+                   "smart_uv": True, "bake": True}
+    # v1.0 takes neither bake nor part_names nor smart_uv
+    out = clean_generic_options("retopo", {"model": "v1.0", "smart_uv": True, "bake": True,
+                                           "part_names": ["tripo_part_0"], "face_limit": 3000})
+    assert out == {"model": "v1.0", "face_limit": 3000, "quad": False}
+    # v2.0 keeps part_names
+    out = clean_generic_options("retopo", {"model": "v2.0", "part_names": ["a"]})
+    assert out["part_names"] == ["a"] and "smart_uv" not in out
+
+
+def test_retopo_v3_face_limits_match_live_api():
+    """Ranges verified live 2026-10-21: 499/20001 tri and 10001 quad are 1004."""
+    from app.pipeline.tripo_options import clean_generic_options
+    for bad in (499, 20001):
+        with pytest.raises(ValueError, match="500-20000"):
+            clean_generic_options("retopo", {"model": "v3.0", "face_limit": bad})
+    with pytest.raises(ValueError, match="500-10000 with quad"):
+        clean_generic_options("retopo", {"model": "v3.0", "face_limit": 10001, "quad": True})
+    assert clean_generic_options("retopo", {"model": "v3.0", "face_limit": 20000})["face_limit"] == 20000
+    # empty = adaptive on v3.0
+    out = clean_generic_options("retopo", {"model": "v3.0", "face_limit": None})
+    assert "face_limit" not in out
+    # v2.0 keeps its wide range
+    assert clean_generic_options("retopo", {"model": "v2.0", "face_limit": 100000})["face_limit"] == 100000
+
+
+def test_texture_op_v35_fast_and_delight():
+    from app.pipeline.tripo_options import clean_generic_options
+    out = clean_generic_options("texture", {"model": "v3.5-20260815", "texture_quality": "fast"})
+    assert out["texture_quality"] == "fast" and out["delight"] is True
+    out = clean_generic_options("texture", {"model": "v3.0-20250812", "delight": False})
+    assert "delight" not in out           # only v3.5 reads it
+    with pytest.raises(ValueError, match="fast"):
+        clean_generic_options("texture", {"model": "v3.0-20250812", "texture_quality": "fast"})
+
+
+def test_mesh_texture_version():
+    from app.pipeline.tripo_options import clean_mesh_options
+    # default: Tripo derives the texture model, no v3.5-only fields leak
+    out = clean_mesh_options({"model": "v3.1-20260211"})
+    assert "texture_version" not in out and "delight" not in out
+    # fast pins v3.5 when no version was chosen
+    out = clean_mesh_options({"model": "v3.1-20260211", "texture_quality": "fast"})
+    assert out["texture_version"] == "v3.5-20260815" and out["delight"] is True
+    # explicit non-3.5 + fast is refused (Tripo would 1004)
+    with pytest.raises(ValueError, match="fast"):
+        clean_mesh_options({"model": "v3.1-20260211", "texture_quality": "fast",
+                            "texture_version": "v3.0-20250812"})
+    # P-series takes texture_version too
+    out = clean_mesh_options({"model": "P2-20260801", "texture_version": "v3.5-20260815",
+                              "delight": False})
+    assert out["texture_version"] == "v3.5-20260815" and out["delight"] is False
+    # untextured parts: texture fields are dropped
+    out = clean_mesh_options({"model": "v3.1-20260211", "generate_parts": True,
+                              "texture_version": "v3.5-20260815", "texture_quality": "fast"})
+    assert "texture_version" not in out and "delight" not in out
+    assert out.get("texture_quality") != "fast"
+
+
+def test_rig_model_resolution():
+    from app.pipeline.tripo_options import resolve_rig_model
+    assert resolve_rig_model("auto", "biped", "tripo") == "v3.0-20260909"
+    assert resolve_rig_model(None, "quadruped", None) == "v3.0-20260909"
+    assert resolve_rig_model("auto", "biped", "vrm") == "v3.0-20260909"
+    assert resolve_rig_model("v1.0-20240301", "biped", "mixamo") == "v1.0-20240301"
+    assert resolve_rig_model("v2.5-20260210", "avian", "tripo") == "v2.5-20260210"
+    # Tripo ACCEPTS these at creation (verified live) — we must refuse them
+    with pytest.raises(ValueError, match="needs rig model"):
+        resolve_rig_model("v1.0-20240301", "biped", "vrm")
+    with pytest.raises(ValueError, match="needs rig model"):
+        resolve_rig_model("v2.5-20260210", "biped", "unreal")
+    with pytest.raises(ValueError, match="others"):
+        resolve_rig_model("v1.0-20240301", "others", None)
+    with pytest.raises(ValueError, match="biped-only"):
+        resolve_rig_model("v1.0-20240301", "avian", None)
+
+
+def test_rig_spec_per_model_enum():
+    from app.pipeline.tripo_options import clean_generic_options
+    assert clean_generic_options("rig", {"model": "auto", "spec": "unreal"})["spec"] == "unreal"
+    with pytest.raises(ValueError, match="v1.0-20240301"):
+        clean_generic_options("rig", {"model": "v1.0-20240301", "spec": "vrm"})
+
+
+def test_rig_version_of_legacy_nodes():
+    from app.pipeline.tripo_options import rig_version_of
+    assert rig_version_of({"model_resolved": "v3.0-20260909", "model": "auto"}) == "v3.0-20260909"
+    assert rig_version_of({"model": "v2.5-20260210"}) == "v2.5-20260210"
+    # pre-2026-10 auto rule: biped -> v1.0, everything else -> v2.5
+    assert rig_version_of({"model": "auto", "rig_type": "biped"}) == "v1.0-20240301"
+    assert rig_version_of({"model": "auto", "rig_type": "auto",
+                           "rig_type_resolved": "octopod"}) == "v2.5-20260210"
+    assert rig_version_of({"rig_type": "auto"}) is None
+
+
+def test_retarget_presets_translate_and_validate():
+    from app.pipeline.tripo_options import resolve_retarget_animations as r
+    v1, v25, v3 = "v1.0-20240301", "v2.5-20260210", "v3.0-20260909"
+    assert r(None, v3) == ["preset:idle"]
+    assert r(None, v1) == ["preset:biped:idle"]
+    # v3.0 plays both libraries as-is (verified live 2026-10-21)
+    assert r(["preset:biped:dance_01", "preset:run"], v3) == ["preset:biped:dance_01",
+                                                               "preset:run"]
+    # v2.5 only knows the short list: translate the v1.0 spelling
+    assert r(["preset:biped:walk", "preset:run"], v25) == ["preset:walk", "preset:run"]
+    # v1.0 only knows preset:biped:*
+    assert r(["preset:walk", "preset:biped:dance_01"], v1) == ["preset:biped:walk",
+                                                                "preset:biped:dance_01"]
+    assert r("preset:jump", v3) == ["preset:jump"]
+    assert r(["preset:quadruped:walk"], v3) == ["preset:quadruped:walk"]
+    # no equivalent: refuse with the valid list + the rig hint
+    with pytest.raises(ValueError, match="preset:idle.*rig made with model v3.0"):
+        r(["preset:biped:dance_01"], v25)
+    with pytest.raises(ValueError, match="not a preset"):
+        r(["preset:__zzz_sentinel__"], v1)
+    with pytest.raises(ValueError, match="not a preset"):
+        r(["preset:biped:attack"], v3)   # a real prod guess — in neither library
+    with pytest.raises(ValueError, match="at most 5"):
+        r([f"preset:biped:{a}" for a in ("idle", "walk", "run", "jump", "fall", "turn")], v1)
+    # unknown lineage (not a rig node): pass through untouched
+    assert r(["preset:whatever"], None) == ["preset:whatever"]
+
+
+def test_glb_triangle_count():
+    from app.clients.fixtures import cube_glb
+    from app.pipeline.meshinfo import glb_triangle_count
+    assert glb_triangle_count(cube_glb()) == 12
+    assert glb_triangle_count(Path(__file__)) is None
 
 
 # ---------- engine resume ----------

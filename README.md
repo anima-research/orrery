@@ -2,7 +2,7 @@
 
 Reference images + prompts → 4-view turnaround (gpt-image-2.5 flare/sunburst direct via
 OpenAI Images API; gpt-image-2 direct or via WaveSpeed, plus other models) → 3D mesh
-(Tripo multiview) → texture / retopo / rig / animate / convert — all stored as an
+(Tripo multiview) → texture / retopo / Smart UV / rig / animate / convert — all stored as an
 **append-only version tree**: every retry is a new sibling branch, every prior branch
 stays instantly switchable, nothing is ever overwritten.
 
@@ -31,7 +31,7 @@ Useful env vars: `MOCK_APIS=1` (offline fixtures), `DATA_DIR`, `WAVESPEED_MAX_CO
   set); `image_gen` under a ref_set generates from those refs, at the root it's pure
   text-to-image; `image_edit` is img2img on any image node with its own prompt.
 - **Node** = one operation (`ref_set`, `image_gen`, `image_edit`, `split`, `mesh_gen`,
-  `texture`, `retopo`, `segment`, `complete`, `rig`, `retarget`, `convert`,
+  `texture`, `retopo`, `uv`, `segment`, `complete`, `rig`, `retarget`, `convert`,
   `image_to_multiview`, `import_model`) applied to its parent's output, with a full
   options snapshot. Prompt assembly for image ops: subject + optional `character`
   suffix (T-pose clause, editable) + optional grid `contract` (editable).
@@ -43,8 +43,21 @@ Useful env vars: `MOCK_APIS=1` (offline fixtures), `DATA_DIR`, `WAVESPEED_MAX_CO
   Tripo post-ops chain by `task_id` with automatic fallback to re-uploading the archived GLB.
 - **Exception**: `retarget` accepts ONLY the `task_id` of a Tripo rig task (verified: file
   input → error 1004). Hand-edited rigs can't re-enter Tripo's preset animations — export
-  rigged FBX with `spec: "mixamo"` and animate in Blender/Mixamo instead. Run retargets
-  while the rig task is fresh.
+  rigged FBX with `spec: "mixamo"` (or `unreal` / `unity` / `vrm` / `actorcore` on rig
+  v3.0) and animate in your engine/DCC instead. Run retargets while the rig task is fresh.
+- **Rig versions (2026-10)**: `rig` `model: auto` = Tripo rig **v3.0** (full-body humanoid
+  with finger bones, engine skeleton presets, `rig_type: others`). Retarget presets
+  depend on the rig version — v3.0 rigs play BOTH libraries (the short `preset:walk`
+  set and v1.0's 90+ `preset:biped:*` clips; verified live 2026-10-21, the docs say
+  otherwise), v1.0 only `preset:biped:*`, v2.5 only the short set. Orrery records the
+  version (`options.model_resolved`), translates `preset:biped:walk` ↔ `preset:walk`
+  where needed, and refuses unknown names locally with the valid list
+  (`GET /api/ops` → `retarget.presets`).
+- **Retopo v3.0** is the default (`smart_uv` on — free UV unwrap in the same task;
+  face_limit 500–20000 tri / 500–10000 quad, empty = adaptive). **`uv`** = Tripo Smart UV
+  (`mesh/uv`, 20 cr): re-unwrap any model ≤ 80k triangles and carry its textures, rig and
+  animation onto the new layout; archives the UV atlas preview as a `render` asset
+  (`meta.role = "uv_atlas"`).
 - The `image_gen` `contract` option is the boilerplate appended to your prompt (the 4-pane
   layout + a strict T-pose clause for characters, which Tripo's rigger expects). Edit it
   per-node in the generate dialog.

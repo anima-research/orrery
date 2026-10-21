@@ -65,6 +65,8 @@ class MockTripoClient:
                 "model_url": f"mock://tripo/{task_id}.glb",
                 "rendered_image_url": f"mock://tripo/{task_id}.png",
             }
+            if endpoint.endswith("mesh/uv"):
+                output["uv_render_url"] = f"mock://tripo/{task_id}_uv.webp"
         return TaskResult(task_id=task_id, status="success", progress=100,
                           output=output, credits=0, raw={"mock": True})
 

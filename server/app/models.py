@@ -32,6 +32,7 @@ class OpType(str, enum.Enum):
     image_to_multiview = "image_to_multiview"  # Tripo alternative front-end
     texture = "texture"          # Tripo models/texture
     retopo = "retopo"            # Tripo mesh/decimate
+    uv = "uv"                    # Tripo mesh/uv (Smart UV re-unwrap)
     segment = "segment"          # Tripo mesh/segment
     complete = "complete"        # Tripo mesh/complete
     rig = "rig"                  # Tripo rig-check + rig
