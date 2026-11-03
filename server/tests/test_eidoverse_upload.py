@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("MOCK_APIS", "1")
 
 
-def _push(tmp_path, monkeypatch, in_url: str | None):
+def _push(tmp_path, monkeypatch, in_url: str | None, kind: str = "object"):
     monkeypatch.setenv("EIDOVERSE_URL", "http://world.test")
     monkeypatch.setenv("EIDOVERSE_TOKEN", "door-key")
     if in_url is None:
@@ -20,8 +20,11 @@ def _push(tmp_path, monkeypatch, in_url: str | None):
         monkeypatch.setenv("EIDOVERSE_TOKEN_IN_URL", in_url)
     from tests.conftest import reset_app_modules
     reset_app_modules()
+    from app import config
     from app.services import eidoverse
 
+    settings = config.Settings(_env_file=None)   # the declared defaults, not a local .env
+    monkeypatch.setattr(eidoverse, "get_settings", lambda: settings)
     seen = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -33,18 +36,27 @@ def _push(tmp_path, monkeypatch, in_url: str | None):
                         lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     glb = tmp_path / "a.glb"
     glb.write_bytes(b"glTF" + b"\0" * 16)
-    asyncio.run(eidoverse.send_object(glb, name="lamp"))
+    if kind == "avatar":
+        async def as_is(path, *a, **kw):
+            return glb
+        monkeypatch.setattr(eidoverse, "glb_to_vrm", as_is)
+        monkeypatch.setattr(eidoverse, "slim_vrm_if_needed", as_is)
+        asyncio.run(eidoverse.send_avatar(glb, name="tess"))
+    else:
+        asyncio.run(eidoverse.send_object(glb, name="lamp"))
     return seen[0]
 
 
-def test_bearer_header_and_legacy_query_by_default(tmp_path, monkeypatch):
-    req = _push(tmp_path, monkeypatch, None)
+@pytest.mark.parametrize("kind", ["object", "avatar"])
+def test_bearer_header_and_legacy_query_by_default(tmp_path, monkeypatch, kind):
+    req = _push(tmp_path, monkeypatch, None, kind)
     assert req.headers["authorization"] == "Bearer door-key"
     assert req.url.params.get("token") == "door-key"   # servers before eidoverse #260 read only this
 
 
-def test_token_off_the_url_when_switched_off(tmp_path, monkeypatch):
-    req = _push(tmp_path, monkeypatch, "false")
+@pytest.mark.parametrize("kind", ["object", "avatar"])
+def test_token_off_the_url_when_switched_off(tmp_path, monkeypatch, kind):
+    req = _push(tmp_path, monkeypatch, "false", kind)
     assert req.headers["authorization"] == "Bearer door-key"
     assert "token" not in req.url.params
     assert "door-key" not in str(req.url)
