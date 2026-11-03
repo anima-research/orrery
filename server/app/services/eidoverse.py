@@ -30,14 +30,16 @@ def _max_bytes() -> int:
 
 
 def targets() -> dict[str, dict]:
-    """Configured push targets, name -> {url, token}. 'eidoverse' (prod) is
+    """Configured push targets, name -> {url, token, token_in_url}. 'eidoverse' (prod) is
     always present; 'eidoverse2' (staging) appears once EIDOVERSE2_URL is set.
     Tokens are per-target — staging mints its own JOIN_TOKEN, prod's is refused
     there (deliberate isolation)."""
     s = get_settings()
-    t = {"eidoverse": {"url": s.eidoverse_url, "token": s.eidoverse_token}}
+    t = {"eidoverse": {"url": s.eidoverse_url, "token": s.eidoverse_token,
+                       "token_in_url": s.eidoverse_token_in_url}}
     if s.eidoverse2_url:
-        t["eidoverse2"] = {"url": s.eidoverse2_url, "token": s.eidoverse2_token}
+        t["eidoverse2"] = {"url": s.eidoverse2_url, "token": s.eidoverse2_token,
+                           "token_in_url": s.eidoverse2_token_in_url}
     return t
 
 
@@ -51,8 +53,8 @@ def _resolve(target: str) -> dict:
 
 def _upload_params(target: dict, extra: dict | None = None, by: str | None = None) -> dict:
     params = dict(extra or {})
-    # legacy: a URL is logged; off once the target reads the header (EIDOVERSE_TOKEN_IN_URL)
-    if target["token"] and get_settings().eidoverse_token_in_url:
+    # legacy: a URL is logged; off per target once it reads the header (EIDOVERSE[2]_TOKEN_IN_URL)
+    if target["token"] and target["token_in_url"]:
         params["token"] = target["token"]
     if by:
         params["by"] = by[:64]

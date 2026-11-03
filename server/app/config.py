@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     eidoverse_token_in_url: bool = True  # also send it as ?token= (servers before eidoverse #260 read only that)
     eidoverse2_url: str = ""         # staging world (eidoverse2.animalabs.ai); empty = target hidden
     eidoverse2_token: str = ""       # staging door key (its own JOIN_TOKEN — prod's does not work there)
+    eidoverse2_token_in_url: bool = True  # the same, for staging alone: each target moves to the header on its own
     eidoverse_max_mb: int = 20       # must match the world's UPLOAD_CAP_MB (default 20)
     eidoverse_repo: Path = Path.home() / "connectome-local" / "eidoverse-worlds"
     bun_bin: str = str(Path.home() / ".bun" / "bin" / "bun")
