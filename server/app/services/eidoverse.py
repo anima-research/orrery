@@ -2,7 +2,7 @@
 
 - objects:  POST {url}/upload            raw GLB bytes -> {"path": "store/<hash>.glb"}
 - avatars:  POST {url}/upload?as=avatar&name=<n>  raw VRM bytes -> {"name", "path"}
-  Rigged humanoid GLB -> VRM 1.0 via eidoverse's own tools/glb2vrm.ts (bun),
+  Rigged humanoid GLB -> VRM 1.0 via eidoverse's own glb2vrm.ts (tools/assets/) (bun),
   built for Tripo-style skeletons. No auth (tailnet trust), 80 MB cap,
   GLB magic-number check server-side.
 """
@@ -95,10 +95,19 @@ async def send_object(glb_path: Path, name: str | None = None,
     return r.json()
 
 
+def _engine_tool(name: str) -> Path:
+    """An eidoverse converter by name: tools/assets/ since the engine's 2026-11 reorg, tools/ before it."""
+    repo = get_settings().eidoverse_repo
+    for rel in (("tools", "assets", name), ("tools", name)):
+        if (repo.joinpath(*rel)).exists():
+            return repo.joinpath(*rel)
+    return repo / "tools" / "assets" / name
+
+
 async def glb_to_vrm(glb_path: Path, name: str, height: float | None = None) -> Path:
     """Convert a rigged humanoid GLB to VRM 1.0 using eidoverse's glb2vrm tool."""
     s = get_settings()
-    tool = s.eidoverse_repo / "tools" / "glb2vrm.ts"
+    tool = _engine_tool("glb2vrm.ts")
     if not tool.exists():
         raise EidoverseError(f"glb2vrm tool not found at {tool} — set EIDOVERSE_REPO")
     out = Path(tempfile.mkdtemp(prefix="vrm_")) / f"{name}.vrm"
@@ -116,11 +125,11 @@ async def glb_to_vrm(glb_path: Path, name: str, height: float | None = None) -> 
 
 
 async def slim_vrm_if_needed(vrm_path: Path) -> Path:
-    """Run tools/slim-vrm.ts when the VRM is over the upload cap (texture downsize)."""
+    """Run eidoverse's slim-vrm.ts when the VRM is over the upload cap (texture downsize)."""
     if vrm_path.stat().st_size <= _max_bytes():
         return vrm_path
     s = get_settings()
-    tool = s.eidoverse_repo / "tools" / "slim-vrm.ts"
+    tool = _engine_tool("slim-vrm.ts")
     slim = vrm_path.with_name(vrm_path.stem + "_slim.vrm")
     proc = await asyncio.create_subprocess_exec(
         s.bun_bin, str(tool), str(vrm_path), "--out", str(slim),
