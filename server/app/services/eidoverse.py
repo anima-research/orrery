@@ -3,8 +3,9 @@
 - objects:  POST {url}/upload            raw GLB bytes -> {"path": "store/<hash>.glb"}
 - avatars:  POST {url}/upload?as=avatar&name=<n>  raw VRM bytes -> {"name", "path"}
   Rigged humanoid GLB -> VRM 1.0 via eidoverse's own glb2vrm.ts (tools/assets/) (bun),
-  built for Tripo-style skeletons. No auth (tailnet trust), 80 MB cap,
-  GLB magic-number check server-side.
+  built for Tripo-style skeletons. The upload key rides `Authorization: Bearer`
+  (and `?token=` while EIDOVERSE_TOKEN_IN_URL is on); the world's UPLOAD_CAP_MB
+  cap and a GLB magic-number check apply server-side.
 """
 from __future__ import annotations
 
@@ -29,14 +30,16 @@ def _max_bytes() -> int:
 
 
 def targets() -> dict[str, dict]:
-    """Configured push targets, name -> {url, token}. 'eidoverse' (prod) is
+    """Configured push targets, name -> {url, token, token_in_url}. 'eidoverse' (prod) is
     always present; 'eidoverse2' (staging) appears once EIDOVERSE2_URL is set.
     Tokens are per-target — staging mints its own JOIN_TOKEN, prod's is refused
     there (deliberate isolation)."""
     s = get_settings()
-    t = {"eidoverse": {"url": s.eidoverse_url, "token": s.eidoverse_token}}
+    t = {"eidoverse": {"url": s.eidoverse_url, "token": s.eidoverse_token,
+                       "token_in_url": s.eidoverse_token_in_url}}
     if s.eidoverse2_url:
-        t["eidoverse2"] = {"url": s.eidoverse2_url, "token": s.eidoverse2_token}
+        t["eidoverse2"] = {"url": s.eidoverse2_url, "token": s.eidoverse2_token,
+                           "token_in_url": s.eidoverse2_token_in_url}
     return t
 
 
@@ -50,11 +53,17 @@ def _resolve(target: str) -> dict:
 
 def _upload_params(target: dict, extra: dict | None = None, by: str | None = None) -> dict:
     params = dict(extra or {})
-    if target["token"]:
+    # legacy: a URL is logged; off per target once it reads the header (EIDOVERSE[2]_TOKEN_IN_URL)
+    if target["token"] and target["token_in_url"]:
         params["token"] = target["token"]
     if by:
         params["by"] = by[:64]
     return params
+
+
+def _upload_headers(target: dict) -> dict:
+    """The upload key as `Authorization: Bearer` (RFC 6750 §2.1, the recommended way)."""
+    return {"Authorization": f"Bearer {target['token']}"} if target["token"] else {}
 
 
 def _check_glb(path: Path) -> None:
@@ -84,6 +93,7 @@ async def send_object(glb_path: Path, name: str | None = None,
         async with httpx.AsyncClient(timeout=300) as client:
             r = await client.post(f"{t['url']}/upload",
                                   params=_upload_params(t, extra, by=by),
+                                  headers=_upload_headers(t),
                                   content=glb_path.read_bytes())
     except httpx.HTTPError as e:
         raise EidoverseError(f"cannot reach {target} at {t['url']}: {e.__class__.__name__}: {e}")
@@ -158,6 +168,7 @@ async def send_avatar(glb_path: Path, name: str, height: float | None = None,
             r = await client.post(
                 f"{t['url']}/upload",
                 params=_upload_params(t, {"as": "avatar", "name": name}, by=by),
+                headers=_upload_headers(t),
                 content=vrm.read_bytes(),
             )
     except httpx.HTTPError as e:
